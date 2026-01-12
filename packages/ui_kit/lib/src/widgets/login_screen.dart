@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:ui_kit/src/widgets/organization_registration_auth_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   final Future<void> Function(String email, String password) onLogin;
@@ -68,7 +69,7 @@ class _LoginScreenState extends State<LoginScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                _isSignUp ? 'Create Account' : widget.title,
+                _isSignUp ? 'Create User Account' : widget.title,
                 style: Theme.of(context).textTheme.headlineMedium,
                 textAlign: TextAlign.center,
               ),
@@ -109,22 +110,56 @@ class _LoginScreenState extends State<LoginScreen> {
                         width: 20,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : Text(_isSignUp ? 'Sign Up' : 'Sign In'),
+                    : Text(_isSignUp ? 'Create User Account' : 'Sign In'),
               ),
-              if (widget.onSignUp != null) ...[
+              if (_isSignUp) ...[
+                const SizedBox(height: 16),
+                const Divider(),
+                const SizedBox(height: 16),
+                OutlinedButton(
+                   onPressed: () {
+                     setState(() {
+                       _isSignUp = false;
+                       _errorMessage = null;
+                     });
+                   },
+                   child: const Text('Already have an account? Sign In'),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: () {
+                    // Organization Registration needs the signup callback to create the user first
+                    if (widget.onSignUp == null) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Registration not enabled')),
+                      );
+                      return;
+                    }
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => OrganizationRegistrationAuthScreen(
+                          // We pass the signup logic from the implementation layer
+                          onSignUp: widget.onSignUp!, 
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.business),
+                  label: const Text('Register New Organization'),
+                ),
+              ] else if (widget.onSignUp != null) ...[
                 const SizedBox(height: 16),
                 TextButton(
                   onPressed: _isLoading
                       ? null
                       : () {
                           setState(() {
-                            _isSignUp = !_isSignUp;
+                            _isSignUp = true;
                             _errorMessage = null;
                           });
                         },
-                  child: Text(_isSignUp
-                      ? 'Already have an account? Sign In'
-                      : 'Need an account? Sign Up'),
+                  child: const Text('New User? Create Account'),
                 ),
               ],
             ],

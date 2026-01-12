@@ -13,13 +13,58 @@ class FeedScreen extends StatefulWidget {
 
 class _FeedScreenState extends State<FeedScreen> {
   final _postRepo = PostRepository();
+  final _orgRepo = OrganizationRepository();
+  
   List<Post> _posts = [];
   bool _isLoading = true;
+  bool _isSuperAdmin = false;
+  Organization? _userOrg;
+  String? _orgStatus; // null = ok/no-org, 'pending', 'rejected'
+
+  bool _isOrgAdmin = false; // Owner or Admin of their org
 
   @override
   void initState() {
     super.initState();
-    _fetchFeed();
+    _checkAccess();
+  }
+
+  Future<void> _checkAccess() async {
+    try {
+      // 1. Check Role (Super Admin)
+      final isSuperAdmin = await UserRoles.isSuperAdmin();
+      
+      // 2. Check Org Status & Role
+      final org = await _orgRepo.getUserOrganization();
+      bool isOrgAdmin = false;
+      String? orgStatus;
+      
+      if (org != null) {
+          orgStatus = org.status;
+          if (org.status == 'approved') {
+               isOrgAdmin = await _orgRepo.isOrgAdmin();
+          }
+      }
+
+      if (mounted) {
+        setState(() {
+          _isSuperAdmin = isSuperAdmin;
+          _userOrg = org;
+          _orgStatus = (orgStatus == 'pending' || orgStatus == 'rejected') ? orgStatus : null; // Only block if pending/rejected
+          _isOrgAdmin = isOrgAdmin;
+          _isLoading = false;
+        });
+        
+        if (_orgStatus == null) {
+            _fetchFeed();
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        _fetchFeed();
+      }
+    }
   }
 
   Future<void> _fetchFeed() async {
@@ -41,87 +86,6 @@ class _FeedScreenState extends State<FeedScreen> {
         );
       }
     }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Community Feed'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () => AuthService().signOut(),
-          ),
-        ],
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: _fetchFeed,
-              child: ListView.separated(
-                itemCount: _posts.length,
-                separatorBuilder: (context, index) => const Divider(),
-                itemBuilder: (context, index) {
-                  final post = _posts[index];
-                  final username = post.profile?.username ?? 'Unknown User';
-                  final date = DateFormat.yMMMd().add_Hm().format(post.createdAt);
-
-                  return Card(
-                    margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    child: Padding(
-                      padding: const EdgeInsets.all(12.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              CircleAvatar(
-                                child: Text(username[0].toUpperCase()),
-                              ),
-                              const SizedBox(width: 8),
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    username,
-                                    style: const TextStyle(fontWeight: FontWeight.bold),
-                                  ),
-                                  Text(
-                                    date,
-                                    style: Theme.of(context).textTheme.bodySmall,
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          Text(post.content),
-                          const SizedBox(height: 8),
-                          // Interaction buttons placeholder
-                          Row(
-                            children: [
-                              IconButton(
-                                icon: const Icon(Icons.comment_outlined),
-                                onPressed: () {
-                                  // TODO: Navigate to Post Details for comments
-                                },
-                              ),
-                              Text('Comments'),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _showCreatePostDialog,
-        child: const Icon(Icons.edit),
-      ),
-    );
   }
 
   Future<void> _showCreatePostDialog() async {
@@ -167,4 +131,141 @@ class _FeedScreenState extends State<FeedScreen> {
       ),
     );
   }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_orgStatus != null) {
+      return OrganizationStatusScreen(
+        status: _orgStatus!,
+        onRefresh: () {
+            setState(() {
+                _isLoading = true;
+                _orgStatus = null;
+            });
+            _checkAccess();
+        },
+      );
+    }
+
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Home'),
+          bottom: const TabBar(
+            tabs: [
+              Tab(text: 'Feed', icon: Icon(Icons.dynamic_feed)),
+              Tab(text: 'Churches', icon: Icon(Icons.church)),
+            ],
+          ),
+          actions: [
+            if (_isSuperAdmin)
+              IconButton(
+                icon: const Icon(Icons.admin_panel_settings),
+                tooltip: 'Super Admin',
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const SuperAdminDashboard()),
+                  );
+                },
+              ),
+  
+            if (_userOrg != null && _isOrgAdmin) // Only show if Admin/Owner
+               IconButton(
+                icon: const Icon(Icons.business_center),
+                tooltip: 'Organization Admin',
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => OrganizationAdminDashboard(organization: _userOrg!)),
+                  );
+                },
+              ),
+  
+            IconButton(
+              icon: const Icon(Icons.logout),
+              onPressed: () => AuthService().signOut(),
+            ),
+          ],
+        ),
+        body: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : TabBarView(
+                children: [
+                  // Tab 1: Feed
+                  RefreshIndicator(
+                    onRefresh: _fetchFeed,
+                    child: _posts.isEmpty 
+                      ? const Center(child: Text('No posts yet.'))
+                      : ListView.separated(
+                        itemCount: _posts.length,
+                        separatorBuilder: (context, index) => const Divider(),
+                        itemBuilder: (context, index) {
+                          final post = _posts[index];
+                          final username = post.profile?.username ?? 'Unknown User';
+                          final date = DateFormat.yMMMd().add_Hm().format(post.createdAt);
+        
+                          return Card(
+                            margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            child: Padding(
+                              padding: const EdgeInsets.all(12.0),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      CircleAvatar(
+                                        child: Text(username[0].toUpperCase()),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            username,
+                                            style: const TextStyle(fontWeight: FontWeight.bold),
+                                          ),
+                                          Text(
+                                            date,
+                                            style: Theme.of(context).textTheme.bodySmall,
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Text(post.content),
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    children: [
+                                      IconButton(
+                                        icon: const Icon(Icons.comment_outlined),
+                                        onPressed: () {
+                                          // TODO: Navigate to Post Details for comments
+                                        },
+                                      ),
+                                      const Text('Comments'),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                  ),
+                  
+                  // Tab 2: Churches (Organizations)
+                  const OrganizationListScreen(),
+                ],
+              ),
+        floatingActionButton: FloatingActionButton(
+          onPressed: _showCreatePostDialog,
+          child: const Icon(Icons.edit),
+        ),
+      ),
+    );
+  }
 }
+

@@ -5,4 +5,7 @@ export 'src/auth_service.dart';
 export 'src/repositories/service_repository.dart';
 export 'src/repositories/song_repository.dart';
 export 'src/repositories/post_repository.dart';
+export 'src/repositories/organization_repository.dart';
+export 'src/user_roles.dart';
+export 'src/repositories/admin_repository.dart';
 
