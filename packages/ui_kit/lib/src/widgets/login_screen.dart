@@ -4,12 +4,14 @@ import 'package:ui_kit/src/widgets/organization_registration_auth_screen.dart';
 class LoginScreen extends StatefulWidget {
   final Future<void> Function(String email, String password) onLogin;
   final Future<void> Function(String email, String password)? onSignUp;
+  final Future<void> Function()? onGoogleSignIn;
   final String title;
 
   const LoginScreen({
     super.key,
     required this.onLogin,
     this.onSignUp,
+    this.onGoogleSignIn,
     this.title = 'Welcome Back',
   });
 
@@ -112,6 +114,34 @@ class _LoginScreenState extends State<LoginScreen> {
                       )
                     : Text(_isSignUp ? 'Create User Account' : 'Sign In'),
               ),
+              if (widget.onGoogleSignIn != null && !_isLoading) ...[
+                const SizedBox(height: 16),
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    setState(() {
+                      _isLoading = true;
+                      _errorMessage = null;
+                    });
+                    try {
+                      await widget.onGoogleSignIn!();
+                    } catch (e) {
+                      if (mounted) {
+                        setState(() {
+                          _errorMessage = e.toString();
+                        });
+                      }
+                    } finally {
+                      if (mounted) {
+                        setState(() {
+                          _isLoading = false;
+                        });
+                      }
+                    }
+                  },
+                  icon: const Icon(Icons.login), // Replace with specific Google icon if available/wanted, standard icon for now.
+                  label: const Text('Sign in with Google'),
+                ),
+              ],
               if (_isSignUp) ...[
                 const SizedBox(height: 16),
                 const Divider(),

@@ -13,6 +13,9 @@ dependencies:
   flutter_riverpod: ^2.6.1
   fpdart: ^1.2.0
   supabase_flutter: ^2.8.0
+  models:
+    path: ../models
+
 
 dev_dependencies:
   flutter_test:

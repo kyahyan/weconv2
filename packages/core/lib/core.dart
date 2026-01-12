@@ -8,4 +8,6 @@ export 'src/repositories/post_repository.dart';
 export 'src/repositories/organization_repository.dart';
 export 'src/user_roles.dart';
 export 'src/repositories/admin_repository.dart';
-
+export 'src/repositories/profile_repository.dart';
+export 'src/repositories/attendance_repository.dart';
+export 'package:supabase_flutter/supabase_flutter.dart';

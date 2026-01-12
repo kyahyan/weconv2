@@ -2,9 +2,37 @@ import 'package:core/core.dart';
 import 'package:flutter/material.dart';
 import 'package:ui_kit/ui_kit.dart';
 import 'src/feed_screen.dart';
+import 'src/profile_screen.dart';
 
-void main() async {
+import 'package:windows_single_instance/windows_single_instance.dart';
+
+import 'package:window_manager/window_manager.dart';
+
+void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+  await windowManager.ensureInitialized();
+  
+  // Ensure single instance on Windows
+  await WindowsSingleInstance.ensureSingleInstance(args, "weconnect_community_app_v2", onSecondWindow: (args) {
+    // This callback runs in the FIRST instance when a second instance tries to open
+    print("Second instance launched with args: $args");
+    
+    // Bring window to front
+    windowManager.show();
+    windowManager.focus();
+
+    // Find the custom protocol url in args
+    for (final arg in args) {
+       if (arg.contains('io.supabase.flutter://')) {
+          try {
+             Supabase.instance.client.auth.getSessionFromUrl(Uri.parse(arg));
+          } catch (e) {
+             print("Error parsing deep link: $e");
+          }
+       }
+    }
+  });
+
   await SupabaseConfig.init();
   runApp(const MyApp());
 }
@@ -55,6 +83,9 @@ class _AuthGateState extends State<AuthGate> {
           onSignUp: (email, password) async {
             await _authService.signUp(email: email, password: password);
           },
+          onGoogleSignIn: () async {
+            await _authService.signInWithGoogle();
+          },
         );
       },
     );
@@ -70,6 +101,15 @@ class DashboardScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Community Feed'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.person),
+            onPressed: () {
+               Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const ProfileScreen()),
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () => AuthService().signOut(),

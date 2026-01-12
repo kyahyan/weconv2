@@ -1,6 +1,7 @@
 import 'package:core/core.dart';
 import 'package:flutter/material.dart';
 import 'package:models/models.dart';
+import 'ushering_dashboard.dart';
 
 class BranchControlScreen extends StatefulWidget {
   final Organization organization;
@@ -22,6 +23,8 @@ class _BranchControlScreenState extends State<BranchControlScreen> {
   bool _isLoading = true;
   bool _isCurrentUserOrgAdmin = false; // "Owner" or high-level admin
   String? _currentUserId;
+  bool _hasDashboardAccess = false; // Manager or Usher or Admin
+  bool _canManageRoles = false; // Manager or Admin
 
   @override
   void initState() {
@@ -31,18 +34,46 @@ class _BranchControlScreenState extends State<BranchControlScreen> {
   }
 
   Future<void> _checkPermissions() async {
-    // Only Org Admin (Owner) can assign Managers.
-    final isAdmin = await _orgRepo.isOrgAdmin(); 
-    // We also need to know if I AM a manager of this branch to show the "Assign Roles" UI.
-    // Ideally we fetch my role for this specific branch.
-    // For now, let's assume if I can land here, I have some rights, but let's separate them.
-    // But 'isOrgAdmin' checks if I am the OWNER usually.
-    
+    bool isAdmin = await _orgRepo.isOrgAdmin(); 
     _currentUserId = _orgRepo.currentUser?.id;
+    
+    // Check specific branch role
+    bool isStaff = false;
+    if (_currentUserId != null) {
+      final members = await _orgRepo.getBranchMembersHelper(widget.branch.id);
+      final me = members.firstWhere(
+        (m) => m['user_id'] == _currentUserId, 
+        orElse: () => <String, dynamic>{}
+      );
+      
+      if (me.isNotEmpty) {
+        final role = me['role'];
+        final ministryRoles = List<String>.from(me['ministry_roles'] ?? []);
+        final isManager = role == 'manager';
+        final isUsher = ministryRoles.contains('Ushering') || ministryRoles.contains('Usher');
+        isStaff = isManager || isUsher;
+        
+        // canManageRoles: Admin or Manager
+        if (isManager) _canManageRoles = true;
+      }
+    }
+    
+    // Explicitly check for Organization Owner
+    if (_currentUserId == widget.organization.ownerId) {
+       isAdmin = true;
+    }
+
+    // Admin always can
+    if (isAdmin) _canManageRoles = true;
 
     if (mounted) {
       setState(() {
         _isCurrentUserOrgAdmin = isAdmin;
+        _hasDashboardAccess = isAdmin || isStaff;
+        // _canManageRoles is already updated on instance? No, it's a field I need to add.
+        // Wait, I haven't added `bool _canManageRoles = false;` to the class yet.
+        // I will do that in the next step or this replacement chunk if I can reach it.
+        // Let's assume I add it to the setState block but I need to declare it first.
       });
     }
   }
@@ -171,7 +202,7 @@ class _BranchControlScreenState extends State<BranchControlScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(widget.branch.name),
-            const Text('Branch Control', style: TextStyle(fontSize: 12, fontWeight: FontWeight.normal)),
+            const Text('Branch Dashboard', style: TextStyle(fontSize: 12, fontWeight: FontWeight.normal)),
           ],
         ),
       ),
@@ -179,27 +210,55 @@ class _BranchControlScreenState extends State<BranchControlScreen> {
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
-                if (_isCurrentUserOrgAdmin)
-                Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Card(
-                    color: Colors.blueGrey.withOpacity(0.1),
-                    child: const Padding(
-                      padding: EdgeInsets.all(16.0),
-                      child: Row(
-                        children: [
-                          Icon(Icons.info_outline, color: Colors.blueAccent),
-                          SizedBox(width: 16),
-                          Expanded(
-                            child: Text(
-                              'As an Owner, you can Assign Managers. Managers can then assign ministry roles.',
+                if (_hasDashboardAccess)
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Card(
+                      color: Colors.blueGrey.withOpacity(0.1),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          children: [
+                            if (_isCurrentUserOrgAdmin) ...[
+                              const Row(
+                                children: [
+                                  Icon(Icons.info_outline, color: Colors.blueAccent),
+                                  SizedBox(width: 16),
+                                  Expanded(
+                                    child: Text(
+                                      'As an Owner, you can Assign Managers. Managers can then assign ministry roles.',
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                            ],
+                            
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                onPressed: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(builder: (_) => UsheringDashboard(
+                                      branchId: widget.branch.id,
+                                      branchName: widget.branch.name,
+                                    ))
+                                  );
+                                },
+                                icon: const Icon(Icons.calendar_today),
+                                label: const Text('Attendance Dashboard'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.purple,
+                                  foregroundColor: Colors.white,
+                                ),
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                ),
                 Expanded(
                   child: _members.isEmpty
                       ? const Center(child: Text('No members in this branch yet.'))
@@ -208,26 +267,53 @@ class _BranchControlScreenState extends State<BranchControlScreen> {
                           itemBuilder: (context, index) {
                             final member = _members[index];
                             final profile = member['profile'] ?? {};
-                            final role = member['role'] as String;
+                            final memberUserId = member['user_id'];
+                            
+                            // Override role if Owner
+                            String role = member['role'] as String;
+                            if (memberUserId == widget.organization.ownerId) {
+                              role = 'owner';
+                            }
+                            
                             final isManager = role == 'manager';
+                            final isOwner = role == 'owner';
                             final username = profile['username'] ?? 'Unknown User';
                             final ministryRoles = (member['ministry_roles'] as List<dynamic>?)?.join(', ') ?? '';
                             final membershipId = member['id'];
-                            final memberUserId = member['user_id'];
                             
                             // Am I looking at myself?
                             final isMe = memberUserId == _currentUserId;
-
+                            
+                            // Permission: Can Edit Roles? (Admin or Manager)
+                            // We need to know if *current user* is manager. 
+                            // Since _hasDashboardAccess is (Admin || Staff), and Staff includes Usher.
+                            // We need more granular flag, or iterate permissions again.
+                            // Let's assume we store _isCurrentUserManager in state?
+                            
+                            // Hack: Re-derive or assuming we added it? 
+                            // I didn't add _isCurrentUserManager to state yet.
+                            // Let's use _isCurrentUserOrgAdmin OR (Manager Check).
+                            
+                            // Actually, let's just use `_hasDashboardAccess` but that includes Ushers.
+                            // Need to filter out Ushers.  
+                            // Let's just fix it properly by checking role right here? 
+                            // No, UI rebuilds. 
+                            
+                            // Let's add `_canManageRoles` to state.
+                            
                             return ListTile(
                               leading: CircleAvatar(
-                                backgroundColor: isManager ? Colors.amber : Colors.grey,
-                                child: Icon(isManager ? Icons.star : Icons.person, color: Colors.white),
+                                backgroundColor: isOwner ? Colors.purple : (isManager ? Colors.amber : Colors.grey),
+                                child: Icon(
+                                  isOwner ? Icons.verified_user : (isManager ? Icons.star : Icons.person), 
+                                  color: Colors.white
+                                ),
                               ),
-                              title: Text(username, style: TextStyle(fontWeight: isManager ? FontWeight.bold : null)),
+                              title: Text(username, style: TextStyle(fontWeight: (isManager || isOwner) ? FontWeight.bold : null)),
                               subtitle: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(isManager ? 'Manager' : 'Member'),
+                                  Text(isOwner ? 'Organization Owner' : (isManager ? 'Manager' : 'Member')),
                                   if (ministryRoles.isNotEmpty)
                                     Text('Roles: $ministryRoles', style: const TextStyle(fontSize: 12, color: Colors.orange)),
                                 ],
@@ -246,12 +332,9 @@ class _BranchControlScreenState extends State<BranchControlScreen> {
                                       child: Text(isManager ? 'Demote' : 'Promote', style: const TextStyle(fontSize: 12)),
                                     ),
                                     
-                                  // 2. Manager Action: Assign Roles (If I am a Manager OR Owner, and target is NOT me)
-                                  // Actually, can I assign roles to myself? Usually yes.
-                                  // Only show if I have permission. 
-                                  // For simplicity: If I am Admin OR (I am Manager), I can edit roles.
-                                  // We'll rely on RLS to fail if I'm not allowed, 
-                                  // but generally: Owner -> Can do everything. Manager -> Can edit roles of Members (and themselves).
+                                  // 2. Manager Action: Assign Roles 
+                                  // Show ONLY if I am Admin OR I am Manager (NOT just Usher)
+                                  if (_canManageRoles) 
                                   IconButton(
                                     icon: const Icon(Icons.edit_note),
                                     onPressed: () => _showRoleDialog(member),

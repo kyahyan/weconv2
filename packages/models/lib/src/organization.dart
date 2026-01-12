@@ -11,6 +11,17 @@ class Organization {
   @JsonKey(name: 'created_at')
   final DateTime createdAt;
   final String status; // pending, approved, rejected
+  final String? acronym;
+  @JsonKey(name: 'contact_mobile')
+  final String? contactMobile;
+  @JsonKey(name: 'contact_landline')
+  final String? contactLandline;
+  final String? location;
+  @JsonKey(name: 'avatar_url')
+  final String? avatarUrl;
+  final String? website;
+  @JsonKey(name: 'social_media_links')
+  final Map<String, dynamic>? socialMediaLinks;
 
   Organization({
     required this.id,
@@ -18,6 +29,13 @@ class Organization {
     required this.ownerId,
     required this.createdAt,
     this.status = 'pending',
+    this.acronym,
+    this.contactMobile,
+    this.contactLandline,
+    this.location,
+    this.avatarUrl,
+    this.website,
+    this.socialMediaLinks,
   });
 
   factory Organization.fromJson(Map<String, dynamic> json) => _$OrganizationFromJson(json);

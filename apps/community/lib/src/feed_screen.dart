@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:models/models.dart';
 import 'package:ui_kit/ui_kit.dart';
 import 'package:intl/intl.dart';
+import 'profile_screen.dart';
 
 class FeedScreen extends StatefulWidget {
   const FeedScreen({super.key});
@@ -39,11 +40,27 @@ class _FeedScreenState extends State<FeedScreen> {
       bool isOrgAdmin = false;
       String? orgStatus;
       
+      print("_checkAccess: UserOrg: $org");
+
       if (org != null) {
           orgStatus = org.status;
+          print("_checkAccess: OrgStatus: $orgStatus");
+          
           if (org.status == 'approved') {
-               isOrgAdmin = await _orgRepo.isOrgAdmin();
+               // Robust Check: Owner OR Admin/Manager Role
+               final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+               final isOwner = currentUserId != null && org.ownerId == currentUserId;
+               
+               if (isOwner) {
+                 print("_checkAccess: User is OWNER. Granting access.");
+                 isOrgAdmin = true;
+               } else {
+                 isOrgAdmin = await _orgRepo.canAccessDashboard(); 
+                 print("_checkAccess: isOrgAdmin (DB check): $isOrgAdmin");
+               }
           }
+      } else {
+        print("_checkAccess: Organization is NULL for this user.");
       }
 
       if (mounted) {
@@ -60,6 +77,7 @@ class _FeedScreenState extends State<FeedScreen> {
         }
       }
     } catch (e) {
+      print("_checkAccess: Error: $e");
       if (mounted) {
         setState(() => _isLoading = false);
         _fetchFeed();
@@ -159,6 +177,16 @@ class _FeedScreenState extends State<FeedScreen> {
             ],
           ),
           actions: [
+            IconButton(
+              icon: const Icon(Icons.person),
+              tooltip: 'Profile',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const ProfileScreen()),
+                );
+              },
+            ),
             if (_isSuperAdmin)
               IconButton(
                 icon: const Icon(Icons.admin_panel_settings),
@@ -171,10 +199,10 @@ class _FeedScreenState extends State<FeedScreen> {
                 },
               ),
   
-            if (_userOrg != null && _isOrgAdmin) // Only show if Admin/Owner
+            if (_userOrg != null && _isOrgAdmin) // Owner, Admin, or Manager
                IconButton(
                 icon: const Icon(Icons.business_center),
-                tooltip: 'Organization Admin',
+                tooltip: 'Organization Dashboard',
                 onPressed: () {
                   Navigator.push(
                     context,

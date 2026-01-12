@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:models/models.dart';
 
@@ -171,18 +172,24 @@ class OrganizationRepository {
     return (response as List).map((e) => e['branch_id'] as String).toList();
   }
 
-  Future<Map<String, String>> getUserBranchRoles(String orgId) async {
+  Future<List<Map<String, dynamic>>> getUserBranchData(String orgId) async {
     final userId = _client.auth.currentUser?.id;
-    if (userId == null) return {};
+    if (userId == null) return [];
 
     final response = await _client
         .from('organization_members')
-        .select('branch_id, role')
+        .select('branch_id, role, ministry_roles')
         .eq('user_id', userId)
         .eq('organization_id', orgId);
 
+    return List<Map<String, dynamic>>.from(response);
+  }
+
+  // Deprecated slightly, but kept for backward compat if needed, or updated to use above
+  Future<Map<String, String>> getUserBranchRoles(String orgId) async {
+    final data = await getUserBranchData(orgId);
     final Map<String, String> roles = {};
-    for (var item in response as List) {
+    for (var item in data) {
       if (item['branch_id'] != null) {
         roles[item['branch_id'] as String] = item['role'] as String;
       }
@@ -193,10 +200,22 @@ class OrganizationRepository {
   Future<List<Map<String, dynamic>>> getBranchMembers(String orgId, String branchId) async {
     final response = await _client
         .from('organization_members')
-        .select('id, user_id, role, ministry_roles, profile:profiles(username, avatar_url)')
+        .select('id, user_id, role, ministry_roles, profile:profiles(username, full_name, avatar_url)')
         .eq('organization_id', orgId)
         .eq('branch_id', branchId);
         
+    return List<Map<String, dynamic>>.from(response);
+  }
+
+  // Alias for UI convenience if needed, but dashboard calls this
+  Future<List<Map<String, dynamic>>> getBranchMembersHelper(String branchId) async {
+    // We need orgId to be safe, but RLS might handle it. 
+    // Actually, querying by branch_id should be enough if unique? 
+    // Branch IDs are unique.
+    final response = await _client
+        .from('organization_members')
+        .select('id, user_id, role, ministry_roles, profile:profiles(username, full_name, avatar_url)')
+        .eq('branch_id', branchId);
     return List<Map<String, dynamic>>.from(response);
   }
 
@@ -223,5 +242,44 @@ class OrganizationRepository {
         .or('role.eq.owner,role.eq.admin'); 
     
     return (response as List).isNotEmpty;
+  }
+
+  // Check if user has access to the dashboard (Owner, Admin, or Manager)
+  Future<bool> canAccessDashboard() async {
+    try {
+      final userId = _client.auth.currentUser?.id;
+      if (userId == null) {
+        print("canAccessDashboard: No user logged in");
+        return false;
+      }
+
+      print("canAccessDashboard: Checking for user $userId");
+
+      final response = await _client
+          .from('organization_members')
+          .select('role')
+          .eq('user_id', userId)
+          .inFilter('role', ['owner', 'admin', 'manager']); // Safer than .or() string
+
+      print("canAccessDashboard: Response: $response");
+      
+      return (response as List).isNotEmpty;
+    } catch (e) {
+      print("canAccessDashboard: Error: $e");
+      return false;
+    }
+  }
+  Future<void> updateOrganizationDetails(Organization org) async {
+    await _client.from('organizations').update(org.toJson()).eq('id', org.id);
+  }
+
+  Future<String> uploadOrganizationAvatar(String orgId, List<int> fileBytes, String fileExtension) async {
+    final fileName = 'organizations/$orgId/avatar.$fileExtension';
+    await _client.storage.from('avatars').uploadBinary(
+      fileName,
+      Uint8List.fromList(fileBytes),
+      fileOptions: const FileOptions(upsert: true),
+    );
+    return _client.storage.from('avatars').getPublicUrl(fileName);
   }
 }

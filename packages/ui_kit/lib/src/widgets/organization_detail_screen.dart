@@ -16,7 +16,7 @@ class _OrganizationDetailScreenState extends State<OrganizationDetailScreen> {
   final _orgRepo = OrganizationRepository();
   bool _isLoading = true;
   List<Branch> _branches = []; // Restored
-  Map<String, String> _joinedBranchRoles = {};
+  Map<String, Map<String, dynamic>> _joinedBranchRoles = {};
 
   @override
   void initState() {
@@ -31,13 +31,19 @@ class _OrganizationDetailScreenState extends State<OrganizationDetailScreen> {
       // 1. Fetch Branches separately (since Organization model doesn't hold them)
       final branches = await _orgRepo.getBranches(widget.organization.id);
       
-      // 2. Fetch My Roles in this Org
-      final roles = await _orgRepo.getUserBranchRoles(widget.organization.id);
+      // 2. Fetch My Roles in this Org (Rich Data)
+      final data = await _orgRepo.getUserBranchData(widget.organization.id);
+      final roleMap = <String, Map<String, dynamic>>{};
+      for (var item in data) {
+         if (item['branch_id'] != null) {
+           roleMap[item['branch_id']] = item;
+         }
+      }
 
       if (mounted) {
         setState(() {
           _branches = branches; // Use local list
-          _joinedBranchRoles = roles;
+          _joinedBranchRoles = roleMap;
           _isLoading = false;
         });
       }
@@ -139,40 +145,62 @@ class _OrganizationDetailScreenState extends State<OrganizationDetailScreen> {
             if (_branches.isEmpty)
               const Center(child: Padding(padding: EdgeInsets.all(32), child: Text('No branches available.'))),
 
-            ListView.separated(
+              ListView.separated(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               itemCount: _branches.length,
               separatorBuilder: (_, __) => const SizedBox(height: 12),
               itemBuilder: (context, index) {
                 final branch = _branches[index];
-                final userRole = _joinedBranchRoles[branch.id];
+                final roleData = _joinedBranchRoles[branch.id] ?? {};
+                final userRole = roleData['role'];
+                final ministryRoles = List<String>.from(roleData['ministry_roles'] ?? []);
+                
                 final isJoined = userRole != null;
                 final isManager = userRole == 'manager';
+                final isUsher = ministryRoles.contains('Ushering') || ministryRoles.contains('Usher'); // Check both spelling just in case
+                
+                // "Staff" access: Manager or Usher or Admin/Owner (from Org check)
+                final hasDashboardAccess = isManager || isUsher;
 
                 return Card(
                   child: ListTile(
                     contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     leading: CircleAvatar(
-                      backgroundColor: isManager ? Colors.amber : (isJoined ? Colors.green : Colors.grey.shade800),
+                      backgroundColor: hasDashboardAccess ? Colors.purple : (isJoined ? Colors.green : Colors.grey.shade800),
                       child: Icon(
-                        isManager ? Icons.star : (isJoined ? Icons.check : Icons.location_on), 
+                        hasDashboardAccess ? Icons.dashboard : (isJoined ? Icons.check : Icons.location_on), 
                         color: Colors.white
                       ),
                     ),
                     title: Text(branch.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: isManager 
-                      ? const Text('Manage Branch', style: TextStyle(color: Colors.amber))
-                      : null,
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (isManager) const Text('Manager', style: TextStyle(color: Colors.amber, fontWeight: FontWeight.bold)),
+                        if (isUsher) const Text('Usher Team', style: TextStyle(color: Colors.purple)),
+                        if (!isManager && !isUsher && isJoined) const Text('Member'),
+                      ],
+                    ),
                     
-                    onTap: isManager ? () {
+                    onTap: hasDashboardAccess ? () {
                        Navigator.push(context, MaterialPageRoute(
+                         // Go to BranchControlScreen which has the Ushering button
+                         // OR we could go directly to UsheringDashboard if only Usher?
+                         // Let's stick to BranchControlScreen as the "HQ" for that branch.
                          builder: (_) => BranchControlScreen(organization: widget.organization, branch: branch),
                        ));
                     } : null,
 
-                    trailing: (isManager) 
-                        ? const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.amber)
+                    trailing: (hasDashboardAccess) 
+                        ? OutlinedButton(
+                            onPressed: () {
+                               Navigator.push(context, MaterialPageRoute(
+                                 builder: (_) => BranchControlScreen(organization: widget.organization, branch: branch),
+                               ));
+                            },
+                            child: const Text('Dashboard'),
+                          )
                         : (isJoined
                             ? ElevatedButton(
                                 onPressed: () => _leaveBranch(branch.id),

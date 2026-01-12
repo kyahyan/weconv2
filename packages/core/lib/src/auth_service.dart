@@ -24,4 +24,22 @@ class AuthService {
       password: password,
     );
   }
+
+  Future<bool> signInWithGoogle() async {
+    try {
+      // For Windows and Web, this will launch the browser.
+      // Make sure you have configured the redirect URL in Supabase dashboard.
+      // Default bundle ID for windows is usually sufficient if deep linking is set up,
+      // but strictly for "easy" windows dev, often the browser handles it.
+      // We will simpler use signInWithOAuth.
+      final response = await _client.auth.signInWithOAuth(
+        OAuthProvider.google,
+        redirectTo: 'io.supabase.flutter://callback', // Common default, adjust if needed
+      );
+      return response;
+    } catch (e) {
+      // Handle error or rethrow
+      rethrow;
+    }
+  }
 }

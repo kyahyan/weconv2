@@ -12,6 +12,13 @@ Organization _$OrganizationFromJson(Map<String, dynamic> json) => Organization(
       ownerId: json['owner_id'] as String,
       createdAt: DateTime.parse(json['created_at'] as String),
       status: json['status'] as String? ?? 'pending',
+      acronym: json['acronym'] as String?,
+      contactMobile: json['contact_mobile'] as String?,
+      contactLandline: json['contact_landline'] as String?,
+      location: json['location'] as String?,
+      avatarUrl: json['avatar_url'] as String?,
+      website: json['website'] as String?,
+      socialMediaLinks: json['social_media_links'] as Map<String, dynamic>?,
     );
 
 Map<String, dynamic> _$OrganizationToJson(Organization instance) =>
@@ -21,6 +28,13 @@ Map<String, dynamic> _$OrganizationToJson(Organization instance) =>
       'owner_id': instance.ownerId,
       'created_at': instance.createdAt.toIso8601String(),
       'status': instance.status,
+      'acronym': instance.acronym,
+      'contact_mobile': instance.contactMobile,
+      'contact_landline': instance.contactLandline,
+      'location': instance.location,
+      'avatar_url': instance.avatarUrl,
+      'website': instance.website,
+      'social_media_links': instance.socialMediaLinks,
     };
 
 Branch _$BranchFromJson(Map<String, dynamic> json) => Branch(
