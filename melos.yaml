@@ -1,0 +1,14 @@
+name: weconnect_ecosystem
+repository: https://github.com/kyahyan/weconv2.git
+
+packages:
+  - apps/* # Look for apps in this folder
+  - packages/* # Look for shared code in this folder
+
+scripts:
+  postbootstrap: dart pub get
+  
+  # A helper command to clean everything if things get buggy
+  clean:
+    run: melos exec -- "flutter clean"
+    description: Clean all packages and apps.

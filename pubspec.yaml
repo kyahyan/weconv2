@@ -1,0 +1,7 @@
+name: weconnect_ecosystem
+description: A monorepo for the WeConnect Church Ecosystem
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dev_dependencies:
+  melos: ^6.0.0 # The tool that manages the monorepo
