@@ -7,11 +7,13 @@ import 'attendance_statistics_screen.dart';
 class UsheringDashboard extends StatelessWidget {
   final String branchId;
   final String branchName;
+  final String ownerId;
 
   const UsheringDashboard({
     super.key,
     required this.branchId,
     required this.branchName,
+    required this.ownerId,
   });
 
   @override
@@ -31,8 +33,8 @@ class UsheringDashboard extends StatelessWidget {
         body: TabBarView(
           physics: const NeverScrollableScrollPhysics(), // Prevent swipe to avoid conflict with inner tabs
           children: [
-            _AttendanceSection(branchId: branchId),
-            _MembersSection(branchId: branchId),
+            _AttendanceSection(branchId: branchId, ownerId: ownerId),
+            _MembersSection(branchId: branchId, ownerId: ownerId),
           ],
         ),
       ),
@@ -45,7 +47,8 @@ class UsheringDashboard extends StatelessWidget {
 // -----------------------------------------------------------------------------
 class _AttendanceSection extends StatelessWidget {
   final String branchId;
-  const _AttendanceSection({required this.branchId});
+  final String ownerId;
+  const _AttendanceSection({required this.branchId, required this.ownerId});
 
   @override
   Widget build(BuildContext context) {
@@ -69,8 +72,8 @@ class _AttendanceSection extends StatelessWidget {
           Expanded(
             child: TabBarView(
               children: [
-                _TakeAttendanceTab(branchId: branchId),
-                _HistoryTab(branchId: branchId),
+                _TakeAttendanceTab(branchId: branchId, ownerId: ownerId),
+                _HistoryTab(branchId: branchId, ownerId: ownerId),
                 AttendanceStatisticsScreen(branchId: branchId),
               ],
             ),
@@ -86,7 +89,8 @@ class _AttendanceSection extends StatelessWidget {
 // -----------------------------------------------------------------------------
 class _TakeAttendanceTab extends StatefulWidget {
   final String branchId;
-  const _TakeAttendanceTab({required this.branchId});
+  final String ownerId;
+  const _TakeAttendanceTab({required this.branchId, required this.ownerId});
 
   @override
   State<_TakeAttendanceTab> createState() => _TakeAttendanceTabState();
@@ -117,8 +121,9 @@ class _TakeAttendanceTabState extends State<_TakeAttendanceTab> {
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
     try {
-      final members = await _orgRepo.getBranchMembersHelper(widget.branchId);
-      print("DEBUG: Fetched ${members.length} members. Sample tags: ${members.isNotEmpty ? members.first['tags'] : 'N/A'}");
+      final rawMembers = await _orgRepo.getBranchMembersHelper(widget.branchId);
+      final members = rawMembers.where((m) => m['user_id'] != widget.ownerId).toList();
+      print("DEBUG: Fetched ${members.length} members (filtered). Sample tags: ${members.isNotEmpty ? members.first['tags'] : 'N/A'}");
       final existingRecords = await _attendanceRepo.getAttendanceForService(
           widget.branchId, _selectedDate, _selectedServiceType);
 
@@ -330,7 +335,8 @@ class _TakeAttendanceTabState extends State<_TakeAttendanceTab> {
 // -----------------------------------------------------------------------------
 class _HistoryTab extends StatefulWidget {
   final String branchId;
-  const _HistoryTab({required this.branchId});
+  final String ownerId;
+  const _HistoryTab({required this.branchId, required this.ownerId});
 
   @override
   State<_HistoryTab> createState() => _HistoryTabState();
@@ -413,7 +419,8 @@ class _HistoryTabState extends State<_HistoryTab> {
                 ],
               ),
               onTap: () async {
-                final members = await _orgRepo.getBranchMembersHelper(widget.branchId);
+                final rawMembers = await _orgRepo.getBranchMembersHelper(widget.branchId);
+                final members = rawMembers.where((m) => m['user_id'] != widget.ownerId).toList();
                 if (context.mounted) {
                   Navigator.push(context, MaterialPageRoute(builder: (_) => AttendanceDetailScreen(
                     branchId: widget.branchId,
@@ -436,7 +443,8 @@ class _HistoryTabState extends State<_HistoryTab> {
 // -----------------------------------------------------------------------------
 class _MembersSection extends StatefulWidget {
   final String branchId;
-  const _MembersSection({required this.branchId});
+  final String ownerId;
+  const _MembersSection({required this.branchId, required this.ownerId});
 
   @override
   State<_MembersSection> createState() => _MembersSectionState();
@@ -454,7 +462,8 @@ class _MembersSectionState extends State<_MembersSection> {
   }
 
   Future<void> _loadMembers() async {
-    final members = await _orgRepo.getBranchMembersHelper(widget.branchId);
+    final rawMembers = await _orgRepo.getBranchMembersHelper(widget.branchId);
+    final members = rawMembers.where((m) => m['user_id'] != widget.ownerId).toList();
     if (mounted) setState(() { _members = members; _isLoading = false; });
   }
 

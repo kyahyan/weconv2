@@ -79,6 +79,48 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> with SingleTi
     }
   }
 
+  Future<void> _deleteUser(String userId, String email) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete User'),
+        content: Text(
+            'Are you sure you want to delete user $email? This action cannot be undone and will delete all their organizations and data.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    setState(() => _isLoading = true);
+    try {
+      await _adminRepo.deleteUser(userId);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('User deleted successfully')),
+        );
+        await _fetchAllData();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error deleting user: $e')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -146,6 +188,48 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> with SingleTi
     );
   }
 
+  Future<void> _deleteOrg(String orgId, String name) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Organization'),
+        content: Text(
+            'Are you sure you want to delete "$name"? This will delete all branches, members, and data associated with this organization.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    setState(() => _isLoading = true);
+    try {
+      await _adminRepo.deleteOrganization(orgId);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Organization deleted successfully')),
+        );
+        await _fetchAllData();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error deleting organization: $e')),
+        );
+      }
+    }
+  }
+
   Widget _buildAllOrgsList() {
     if (_allOrgs.isEmpty) {
       return const Center(child: Text('No organizations found.'));
@@ -158,9 +242,21 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> with SingleTi
           leading: const Icon(Icons.business),
           title: Text(org.name),
           subtitle: Text('Owner: ${org.ownerId}\nStatus: ${org.status}'),
-          trailing: org.status == 'approved' 
-              ? const Icon(Icons.check_circle, color: Colors.green)
-              : const Icon(Icons.hourglass_empty, color: Colors.orange),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (org.status == 'approved')
+                const Icon(Icons.check_circle, color: Colors.green)
+              else
+                const Icon(Icons.hourglass_empty, color: Colors.orange),
+              const SizedBox(width: 8),
+              IconButton(
+                icon: const Icon(Icons.delete, color: Colors.red),
+                onPressed: () => _deleteOrg(org.id, org.name),
+                tooltip: 'Delete Organization',
+              ),
+            ],
+          ),
         );
       },
     );
@@ -183,7 +279,11 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> with SingleTi
           subtitle: Text('ID: ${user['id']}'),
           trailing: isSuperAdmin 
               ? const Chip(label: Text('Admin'), backgroundColor: Colors.amber)
-              : null,
+              : IconButton(
+                  icon: const Icon(Icons.delete, color: Colors.red),
+                  onPressed: () => _deleteUser(user['id'], username),
+                  tooltip: 'Delete User',
+                ),
         );
       },
     );

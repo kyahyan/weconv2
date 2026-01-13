@@ -1,12 +1,18 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
+import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:ui_kit/ui_kit.dart';
 
 void main() {
-  test('adds one to input values', () {
-    final calculator = Calculator();
-    expect(calculator.addOne(2), 3);
-    expect(calculator.addOne(-7), -6);
-    expect(calculator.addOne(0), 1);
+  testWidgets('OrganizationRegistrationScreen renders shadcn components', (tester) async {
+    // Provide a ShadApp wrapper since Shadcn widgets require ShadTheme/ShadApp
+    await tester.pumpWidget(
+      const ShadApp(
+        home: OrganizationRegistrationScreen(),
+      ),
+    );
+
+    expect(find.byType(ShadInput), findsNWidgets(2)); // Org name and Branch name
+    expect(find.byType(ShadButton), findsOneWidget); // Create button
   });
 }

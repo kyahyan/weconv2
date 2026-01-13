@@ -19,4 +19,12 @@ class AdminRepository {
         .order('created_at', ascending: false);
     return (response as List).map((e) => Organization.fromJson(e)).toList();
   }
+
+  Future<void> deleteUser(String userId) async {
+    await _client.rpc('delete_user_as_admin', params: {'target_user_id': userId});
+  }
+
+  Future<void> deleteOrganization(String orgId) async {
+    await _client.from('organizations').delete().eq('id', orgId);
+  }
 }

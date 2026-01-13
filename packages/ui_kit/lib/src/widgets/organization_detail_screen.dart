@@ -1,5 +1,6 @@
 import 'package:core/core.dart';
 import 'package:flutter/material.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:models/models.dart';
 import 'branch_control_screen.dart';
 
@@ -100,18 +101,14 @@ class _OrganizationDetailScreenState extends State<OrganizationDetailScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Header Card
-            Card(
-              elevation: 4,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              child: Padding(
-                padding: const EdgeInsets.all(24),
+            ShadCard(
+              title: Text(org.name, style: ShadTheme.of(context).textTheme.h4),
+              description: Text('ID: ${org.id}'),
+              content: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 16),
                 child: Column(
                   children: [
                     const Icon(Icons.church, size: 60, color: Colors.blueAccent),
-                    const SizedBox(height: 16),
-                    Text(org.name, style: Theme.of(context).textTheme.headlineSmall),
-                    const SizedBox(height: 8),
-                    Text('ID: ${org.id}', style: Theme.of(context).textTheme.bodySmall),
                     const SizedBox(height: 16),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -124,22 +121,18 @@ class _OrganizationDetailScreenState extends State<OrganizationDetailScreen> {
                         style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold)
                       ),
                     ),
-                    const SizedBox(height: 16),
-                    ElevatedButton.icon(
-                      onPressed: () {},
-                      icon: const Icon(Icons.people),
-                      label: const Text('You are a member'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.greenAccent.withOpacity(0.2),
-                        foregroundColor: Colors.greenAccent,
-                      ),
-                    ),
                   ],
                 ),
               ),
+              footer: ShadButton.secondary(
+                width: double.infinity,
+                onPressed: () {},
+                icon: const Icon(Icons.people, size: 16),
+                text: const Text('You are a member'),
+              ),
             ),
             const SizedBox(height: 32),
-            Text('Branches', style: Theme.of(context).textTheme.titleLarge),
+            Text('Branches', style: ShadTheme.of(context).textTheme.h4),
             const SizedBox(height: 16),
             
             if (_branches.isEmpty)
@@ -163,59 +156,44 @@ class _OrganizationDetailScreenState extends State<OrganizationDetailScreen> {
                 // "Staff" access: Manager or Usher or Admin/Owner (from Org check)
                 final hasDashboardAccess = isManager || isUsher;
 
-                return Card(
-                  child: ListTile(
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    leading: CircleAvatar(
-                      backgroundColor: hasDashboardAccess ? Colors.purple : (isJoined ? Colors.green : Colors.grey.shade800),
-                      child: Icon(
-                        hasDashboardAccess ? Icons.dashboard : (isJoined ? Icons.check : Icons.location_on), 
-                        color: Colors.white
+                return ShadCard(
+                  padding: const EdgeInsets.all(16),
+                  content: Row(
+                    children: [
+                       ShadAvatar('https://github.com/shadcn.png'),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(branch.name, style: ShadTheme.of(context).textTheme.large),
+                            if (isManager) Text('Manager', style: ShadTheme.of(context).textTheme.small.copyWith(color: Colors.amber)),
+                            if (isUsher) Text('Usher Team', style: ShadTheme.of(context).textTheme.small.copyWith(color: Colors.purple)),
+                            if (!isManager && !isUsher && isJoined) Text('Member', style: ShadTheme.of(context).textTheme.muted),
+                          ],
+                        ),
                       ),
-                    ),
-                    title: Text(branch.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (isManager) const Text('Manager', style: TextStyle(color: Colors.amber, fontWeight: FontWeight.bold)),
-                        if (isUsher) const Text('Usher Team', style: TextStyle(color: Colors.purple)),
-                        if (!isManager && !isUsher && isJoined) const Text('Member'),
-                      ],
-                    ),
-                    
-                    onTap: hasDashboardAccess ? () {
-                       Navigator.push(context, MaterialPageRoute(
-                         // Go to BranchControlScreen which has the Ushering button
-                         // OR we could go directly to UsheringDashboard if only Usher?
-                         // Let's stick to BranchControlScreen as the "HQ" for that branch.
-                         builder: (_) => BranchControlScreen(organization: widget.organization, branch: branch),
-                       ));
-                    } : null,
-
-                    trailing: (hasDashboardAccess) 
-                        ? OutlinedButton(
-                            onPressed: () {
-                               Navigator.push(context, MaterialPageRoute(
-                                 builder: (_) => BranchControlScreen(organization: widget.organization, branch: branch),
-                               ));
-                            },
-                            child: const Text('Dashboard'),
+                      const SizedBox(width: 8),
+                      if (hasDashboardAccess)
+                        ShadButton.outline(
+                          onPressed: () {
+                             Navigator.push(context, MaterialPageRoute(
+                               builder: (_) => BranchControlScreen(organization: widget.organization, branch: branch),
+                             ));
+                          },
+                          text: const Text('Dashboard'),
+                        )
+                      else if (isJoined)
+                         ShadButton.destructive(
+                            onPressed: () => _leaveBranch(branch.id),
+                            text: const Text('Leave'),
                           )
-                        : (isJoined
-                            ? ElevatedButton(
-                                onPressed: () => _leaveBranch(branch.id),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.redAccent.withOpacity(0.1),
-                                  foregroundColor: Colors.redAccent,
-                                  elevation: 0,
-                                ),
-                                child: const Text('Leave'),
-                              )
-                            : OutlinedButton(
-                                onPressed: () => _joinBranch(branch.id),
-                                child: const Text('Join'),
-                              )
-                          ),
+                      else
+                        ShadButton(
+                          onPressed: () => _joinBranch(branch.id),
+                          text: const Text('Join'),
+                        )
+                    ],
                   ),
                 );
               },

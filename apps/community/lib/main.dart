@@ -42,11 +42,15 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'WeConnect Community',
-      theme: AppTheme.lightTheme,
-      darkTheme: AppTheme.darkTheme,
-      home: const AuthGate(),
+    return ShadApp(
+      theme: ShadcnAppTheme.lightTheme,
+      darkTheme: ShadcnAppTheme.darkTheme,
+      home: MaterialApp(
+        title: 'WeConnect Community',
+        theme: AppTheme.lightTheme,
+        darkTheme: AppTheme.darkTheme,
+        home: const AuthGate(),
+      ),
     );
   }
 }

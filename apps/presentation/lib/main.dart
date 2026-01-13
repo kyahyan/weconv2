@@ -15,10 +15,14 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Presentation',
-      theme: AppTheme.darkTheme, // Default to dark for presentation
-      home: const AuthWrapper(),
+    return ShadApp(
+      theme: ShadcnAppTheme.lightTheme,
+      darkTheme: ShadcnAppTheme.darkTheme,
+      home: MaterialApp(
+        title: 'Presentation',
+        theme: AppTheme.darkTheme, // Default to dark for presentation
+        home: const AuthWrapper(),
+      ),
     );
   }
 }

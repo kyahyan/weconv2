@@ -43,7 +43,7 @@ dependencies:
     path: ../../packages/ui_kit
   core:
     path: ../../packages/core
-  intl: ^0.20.2
+  intl: ^0.18.1
 
 dev_dependencies:
   flutter_test:

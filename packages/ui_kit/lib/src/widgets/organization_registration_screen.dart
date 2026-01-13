@@ -1,5 +1,6 @@
 import 'package:core/core.dart';
 import 'package:flutter/material.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 
 class OrganizationRegistrationScreen extends StatefulWidget {
   const OrganizationRegistrationScreen({super.key});
@@ -21,37 +22,33 @@ class _OrganizationRegistrationScreenState extends State<OrganizationRegistratio
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
+            Text(
               'Register your Organization',
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _orgNameController,
-              decoration: const InputDecoration(
-                labelText: 'Organization Name',
-                hintText: 'e.g. Grace Community Church',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _branchNameController,
-              decoration: const InputDecoration(
-                labelText: 'Default Branch Name',
-                border: OutlineInputBorder(),
-              ),
+              style: ShadTheme.of(context).textTheme.h3,
             ),
             const SizedBox(height: 24),
+            Text('Organization Name', style: ShadTheme.of(context).textTheme.small),
+            const SizedBox(height: 8),
+            ShadInput(
+              controller: _orgNameController,
+              placeholder: const Text('e.g. Grace Community Church'),
+            ),
+            const SizedBox(height: 16),
+            Text('Default Branch Name', style: ShadTheme.of(context).textTheme.small),
+            const SizedBox(height: 8),
+            ShadInput(
+              controller: _branchNameController,
+              placeholder: const Text('e.g. Main Campus'),
+            ),
+            const SizedBox(height: 32),
             _isLoading 
-              ? const CircularProgressIndicator()
-              : ElevatedButton(
+              ? const Center(child: CircularProgressIndicator())
+              : ShadButton(
+                  width: double.infinity,
                   onPressed: _registerOrganization,
-                  style: ElevatedButton.styleFrom(
-                    minimumSize: const Size(double.infinity, 50),
-                  ),
-                  child: const Text('Create Organization'),
+                  text: const Text('Create Organization'),
                 ),
           ],
         ),

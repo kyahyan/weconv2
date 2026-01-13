@@ -1,6 +1,8 @@
 library ui_kit;
 
+export 'package:shadcn_ui/shadcn_ui.dart';
 export 'src/theme.dart';
+export 'src/theme/shadcn_theme.dart';
 export 'src/widgets/login_screen.dart';
 export 'src/widgets/profile_form.dart';
 export 'src/widgets/organization_registration_screen.dart';

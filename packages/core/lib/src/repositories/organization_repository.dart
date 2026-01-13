@@ -233,6 +233,7 @@ class OrganizationRepository {
 
   Future<void> updateMinistryRoles(String membershipId, List<String> roles) async {
     await _client.from('organization_members').update({
+      'ministry_roles': roles,
     }).eq('id', membershipId);
   }
 
