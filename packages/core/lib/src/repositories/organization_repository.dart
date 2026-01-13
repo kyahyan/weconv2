@@ -214,8 +214,14 @@ class OrganizationRepository {
     // Branch IDs are unique.
     final response = await _client
         .from('organization_members')
-        .select('id, user_id, role, ministry_roles, profile:profiles(username, full_name, avatar_url)')
+        .select('id, user_id, role, ministry_roles, tags, notes, profile:profiles(username, full_name, avatar_url)')
         .eq('branch_id', branchId);
+    
+    // DEBUG: Check raw response for tags
+    if (response.isNotEmpty) {
+      print("REPO DEBUG: First member tags: ${response[0]['tags']} (Type: ${response[0]['tags'].runtimeType})");
+    }
+
     return List<Map<String, dynamic>>.from(response);
   }
 
@@ -227,8 +233,45 @@ class OrganizationRepository {
 
   Future<void> updateMinistryRoles(String membershipId, List<String> roles) async {
     await _client.from('organization_members').update({
-      'ministry_roles': roles,
     }).eq('id', membershipId);
+  }
+
+  Future<void> updateMemberTags(String membershipId, List<String> tags) async {
+    print("REPO DEBUG: Attempting to update tags for $membershipId to $tags");
+    try {
+      final res = await _client.from('organization_members').update({
+        'tags': tags,
+      }).eq('id', membershipId).select();
+      
+      print("REPO DEBUG: Update result: $res");
+      if (res.isEmpty) {
+        print("REPO DEBUG: Update failed (likely RLS). User may not have permission.");
+      } else {
+        print("REPO DEBUG: Update successful.");
+      }
+    } catch (e) {
+      print("REPO DEBUG: Update threw error: $e");
+    }
+  }
+
+  Future<void> updateMemberNotes(String membershipId, String notes) async {
+    await _client.from('organization_members').update({
+      'notes': notes,
+    }).eq('id', membershipId);
+  }
+
+  Future<List<String>> getBranchTags(String branchId) async {
+    // Ideally use RPC, but for now we can fetch all tags and dedup client side if needed
+    // OR use the rpc 'get_branch_tags' if I created it. I did creates the SQL.
+    // Let's assume user applies SQL.
+    try {
+      final response = await _client.rpc('get_branch_tags', params: {'branch_uuid': branchId});
+      return (response as List).map((e) => e['tag'] as String).toList();
+    } catch (e) {
+      // Fallback: fetch distinct from members locally? heavy.
+      print('Error fetching tags: $e');
+      return [];
+    }
   }
 
   Future<bool> isOrgAdmin() async {

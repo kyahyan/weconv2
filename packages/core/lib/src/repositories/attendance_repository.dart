@@ -83,4 +83,22 @@ class AttendanceRepository {
     
     return List<Map<String, dynamic>>.from(response);
   }
+  Future<Map<String, dynamic>> getStatistics(String branchId) async {
+    try {
+      final response = await _client.rpc('get_attendance_stats', params: {'branch_uuid': branchId});
+      return response as Map<String, dynamic>;
+    } catch (e) {
+      // Fallback or empty if RPC fails (e.g. migration not applied)
+      print("Error fetching stats: $e");
+      return {};
+    }
+  }
+
+  Future<void> deleteSession(String branchId, DateTime date, String serviceType) async {
+    await _client.rpc('delete_attendance_session', params: {
+      'p_branch_id': branchId,
+      'p_date': date.toIso8601String().split('T')[0],
+      'p_service_type': serviceType,
+    });
+  }
 }

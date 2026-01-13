@@ -1,48 +1,68 @@
--- Create a secure function to check admin status without triggering RLS loops
-CREATE OR REPLACE FUNCTION public.check_is_superadmin()
-RETURNS BOOLEAN
-LANGUAGE plpgsql
-SECURITY DEFINER -- Runs with owner privileges, bypassing RLS
-SET search_path = public
-AS $$
-DECLARE
-  is_admin BOOLEAN;
+-- Drop the problematic policies that cause recursion
+DROP POLICY IF EXISTS "Update members" ON public.organization_members;
+DROP POLICY IF EXISTS "View members of same org" ON public.organization_members;
+DROP POLICY IF EXISTS "View members" ON public.organization_members; -- In case it was named differently in previous attempts or defaults
+
+-- Create a helper function to check permissions safely
+-- SECURITY DEFINER allows this function to bypass RLS when querying the table
+CREATE OR REPLACE FUNCTION public.can_manage_member(
+    target_org_id UUID,
+    target_branch_id UUID
+) RETURNS BOOLEAN AS $$
 BEGIN
-  -- Check if user is authenticated
-  IF auth.uid() IS NULL THEN
-    RETURN FALSE;
-  END IF;
-
-  SELECT is_superadmin INTO is_admin
-  FROM profiles
-  WHERE id = auth.uid();
-  
-  RETURN COALESCE(is_admin, FALSE);
+    RETURN EXISTS (
+        SELECT 1 
+        FROM public.organization_members om
+        WHERE om.user_id = auth.uid()
+        AND (
+            -- 1. Org Owner/Admin can manage anyone in the org
+            (om.organization_id = target_org_id AND om.role IN ('owner', 'admin'))
+            OR
+            -- 2. Branch Manager can manage anyone in their branch
+            (om.branch_id = target_branch_id AND om.role = 'manager')
+            OR
+            -- 3. Ushers can update (for tagging/notes purposes) in their branch
+            (om.branch_id = target_branch_id AND 'Usher' = ANY(om.ministry_roles))
+        )
+    );
 END;
-$$;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Refactor Profiles Policy
-DROP POLICY IF EXISTS "Superadmins can do everything on profiles" ON public.profiles;
+-- Re-create the policies using the function
 
-CREATE POLICY "Superadmins can do everything on profiles" ON public.profiles
-    FOR ALL USING (
-        check_is_superadmin() = TRUE
+-- SELECT Policy (View)
+-- We use a simpler check for viewing: valid member of the same org
+-- Using a function here too can be safer for recursion, or we can assume basic membership check is fine 
+-- providing we don't query the table itself in a complex way.
+-- However, standard "member of same org" usually requires querying the table.
+-- Let's make a specific view function for "can_view_org_members" to be safe.
+
+CREATE OR REPLACE FUNCTION public.can_view_org_members(target_org_id UUID) 
+RETURNS BOOLEAN AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 FROM public.organization_members 
+        WHERE user_id = auth.uid() 
+        AND organization_id = target_org_id
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE POLICY "View members" ON public.organization_members
+    FOR SELECT
+    USING (
+        public.can_view_org_members(organization_id)
     );
 
--- Refactor Organizations Policies to use the safe function
-DROP POLICY IF EXISTS "Read organizations" ON public.organizations;
-
-CREATE POLICY "Read organizations" ON public.organizations
-    FOR SELECT USING (
-        status = 'approved' OR 
-        auth.uid() = owner_id OR
-        check_is_superadmin() = TRUE
+-- UPDATE Policy
+CREATE POLICY "Update members" ON public.organization_members
+    FOR UPDATE
+    USING (
+        -- User can update their own record OR has management permissions
+        auth.uid() = user_id 
+        OR 
+        public.can_manage_member(organization_id, branch_id)
     );
 
-DROP POLICY IF EXISTS "Update organizations" ON public.organizations;
-
-CREATE POLICY "Update organizations" ON public.organizations
-    FOR UPDATE USING (
-        auth.uid() = owner_id OR 
-        check_is_superadmin() = TRUE
-    );
+-- Ensure RLS is on
+ALTER TABLE public.organization_members ENABLE ROW LEVEL SECURITY;
