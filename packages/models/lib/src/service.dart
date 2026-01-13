@@ -11,6 +11,8 @@ class Service extends Equatable {
     required this.title,
     this.worshipLeaderId,
     this.endTime,
+    this.organizationId,
+    this.branchId,
   });
 
   factory Service.fromJson(Map<String, dynamic> json) =>
@@ -26,8 +28,14 @@ class Service extends Equatable {
   @JsonKey(name: 'end_time')
   final DateTime? endTime;
 
+  @JsonKey(name: 'organization_id')
+  final String? organizationId;
+
+  @JsonKey(name: 'branch_id')
+  final String? branchId;
+
   Map<String, dynamic> toJson() => _$ServiceToJson(this);
 
   @override
-  List<Object?> get props => [id, date, title, worshipLeaderId, endTime];
+  List<Object?> get props => [id, date, title, worshipLeaderId, endTime, organizationId, branchId];
 }

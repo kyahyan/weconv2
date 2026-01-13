@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:core/core.dart';
 import 'package:ui_kit/ui_kit.dart';
-import 'src/service_list_screen.dart';
+import 'src/worship_home_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -12,22 +12,60 @@ void main() async {
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return ShadApp(
       theme: ShadcnAppTheme.lightTheme,
       darkTheme: ShadcnAppTheme.darkTheme,
       home: MaterialApp(
-        title: 'Flutter Demo',
+        title: 'Worship App',
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
           useMaterial3: true,
         ),
-        home: const ServiceListScreen(),
+        home: const AuthGate(),
       ),
     );
   }
 }
 
-// MyHomePage class deleted as we use ServiceListScreen now
+class AuthGate extends StatefulWidget {
+  const AuthGate({super.key});
+
+  @override
+  State<AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<AuthGate> {
+  final _authService = AuthService();
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder(
+      stream: _authService.userStream,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+        }
+
+        final user = snapshot.data;
+        if (user != null) {
+          return const WorshipHomeScreen();
+        }
+
+        return LoginScreen(
+          title: 'Worship App Login',
+          onLogin: (email, password) async {
+            await _authService.signIn(email: email, password: password);
+          },
+          onSignUp: (email, password) async {
+            await _authService.signUp(email: email, password: password);
+          },
+          onGoogleSignIn: () async {
+            await _authService.signInWithGoogle();
+          },
+        );
+      },
+    );
+  }
+}

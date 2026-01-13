@@ -23,6 +23,8 @@ Activity _$ActivityFromJson(Map<String, dynamic> json) => Activity(
       createdAt: json['created_at'] == null
           ? null
           : DateTime.parse(json['created_at'] as String),
+      organizationId: json['organization_id'] as String?,
+      branchId: json['branch_id'] as String?,
     );
 
 Map<String, dynamic> _$ActivityToJson(Activity instance) => <String, dynamic>{
@@ -36,4 +38,6 @@ Map<String, dynamic> _$ActivityToJson(Activity instance) => <String, dynamic>{
       'is_registration_required': instance.isRegistrationRequired,
       'form_config': instance.formConfig,
       'created_at': instance.createdAt?.toIso8601String(),
+      'organization_id': instance.organizationId,
+      'branch_id': instance.branchId,
     };

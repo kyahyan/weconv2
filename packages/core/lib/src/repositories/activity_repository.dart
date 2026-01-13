@@ -5,18 +5,27 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 class ActivityRepository {
   final SupabaseClient _client = Supabase.instance.client;
 
-  Future<List<Activity>> getActivities(DateTime start, DateTime end) async {
-    final response = await _client
+  Future<List<Activity>> getActivities(DateTime start, DateTime end, {List<String>? orgIds, String? branchId}) async {
+    var query = _client
         .from('activities')
         .select()
         .gte('start_time', start.toIso8601String())
-        .lte('start_time', end.toIso8601String())
-        .order('start_time', ascending: true);
+        .lte('start_time', end.toIso8601String());
+
+    if (orgIds != null && orgIds.isNotEmpty) {
+      query = query.filter('organization_id', 'in', orgIds);
+    }
+    
+    if (branchId != null) {
+      query = query.eq('branch_id', branchId);
+    }
+
+    final response = await query.order('start_time', ascending: true);
     
     return (response as List).map((json) => Activity.fromJson(json)).toList();
   }
 
-  Future<void> createActivity(Activity activity, File? imageFile) async {
+  Future<void> createActivity(Activity activity, File? imageFile, {String? orgId, String? branchId}) async {
     String? imageUrl = activity.imageUrl;
 
     if (imageFile != null) {
@@ -38,8 +47,8 @@ class ActivityRepository {
       'image_url': imageUrl,
       'is_registration_required': activity.isRegistrationRequired,
       'form_config': activity.formConfig?.toJson(),
-      // organization_id handled by default if set in DB or we add it here explicitly if needed
-      // 'organization_id': ... 
+      if (orgId != null) 'organization_id': orgId,
+      if (branchId != null) 'branch_id': branchId,
     });
   }
 

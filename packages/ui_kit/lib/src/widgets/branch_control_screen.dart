@@ -1,6 +1,7 @@
 import 'package:core/core.dart';
 import 'package:flutter/material.dart';
 import 'package:models/models.dart';
+import 'package:image_picker/image_picker.dart';
 import 'ushering_dashboard.dart';
 
 class BranchControlScreen extends StatefulWidget {
@@ -25,13 +26,19 @@ class _BranchControlScreenState extends State<BranchControlScreen> {
   String? _currentUserId;
   bool _hasDashboardAccess = false; // Manager or Usher or Admin
   bool _canManageRoles = false; // Manager or Admin
+  late Branch _currentBranch; // Local state for immediate updates
 
   @override
   void initState() {
     super.initState();
+    _currentBranch = widget.branch; // Initialize
     _checkPermissions();
     _fetchMembers();
   }
+
+  // ... (rest of class)
+
+
 
   Future<void> _checkPermissions() async {
     bool isAdmin = await _orgRepo.isOrgAdmin(); 
@@ -117,7 +124,7 @@ class _BranchControlScreenState extends State<BranchControlScreen> {
   Future<void> _showRoleDialog(Map<String, dynamic> member) async {
     // 1. Compile Suggestions (Defaults + Used Roles in this Branch)
     final Set<String> allRoles = {
-      'Attender', 'Leader', 'Instrumentalist', 'Ushering', 'Multimedia', 
+      'Attender', 'Leader', 'Musician', 'Ushering', 'Multimedia', 
       'Kids Teacher', 'Worship Leader', 'Singer', 'Greeter'
     };
     
@@ -153,6 +160,27 @@ class _BranchControlScreenState extends State<BranchControlScreen> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                     // Special Checkbox for Musician
+                    CheckboxListTile(
+                      title: const Text('Musician'),
+                      subtitle: const Text('Assign to Worship Team'),
+                      value: currentRoles.contains('Musician'),
+                      onChanged: (bool? value) {
+                        setStateDialog(() {
+                          if (value == true) {
+                            if (!currentRoles.contains('Musician')) {
+                              currentRoles.add('Musician');
+                            }
+                          } else {
+                            currentRoles.remove('Musician');
+                          }
+                        });
+                      },
+                      activeColor: Colors.deepPurple,
+                      dense: true,
+                      controlAffinity: ListTileControlAffinity.leading,
+                    ),
+                    const Divider(),
                      // Input
                     Autocomplete<String>(
                       optionsBuilder: (textEditingValue) {
@@ -273,21 +301,34 @@ class _BranchControlScreenState extends State<BranchControlScreen> {
     );
   }
 
+  // ... inside _fetchMembers ...
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(widget.branch.name),
-            const Text('Branch Dashboard', style: TextStyle(fontSize: 12, fontWeight: FontWeight.normal)),
-          ],
+    if (_isLoading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(_currentBranch.name),
+              const Text('Branch Dashboard', style: TextStyle(fontSize: 12, fontWeight: FontWeight.normal)),
+            ],
+          ),
+          bottom: const TabBar(
+            tabs: [
+              Tab(icon: Icon(Icons.people), text: 'Members'),
+              Tab(icon: Icon(Icons.info), text: 'Info'),
+            ],
+          ),
         ),
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
+        body: TabBarView(
+          children: [
+            // Tab 1: Members
+            Column(
               children: [
                 if (_hasDashboardAccess)
                   Padding(
@@ -298,6 +339,7 @@ class _BranchControlScreenState extends State<BranchControlScreen> {
                         padding: const EdgeInsets.all(16.0),
                         child: Column(
                           children: [
+                             // ... existing dashboard buttons ...
                             if (_isCurrentUserOrgAdmin) ...[
                               const Row(
                                 children: [
@@ -349,38 +391,17 @@ class _BranchControlScreenState extends State<BranchControlScreen> {
                             final profile = member['profile'] ?? {};
                             final memberUserId = member['user_id'];
                             
-                            // Override role if Owner
                             String role = member['role'] as String;
                             if (memberUserId == widget.organization.ownerId) {
-                              role = 'owner';
+                               role = 'owner';
                             }
-                            
                             final isManager = role == 'manager';
                             final isOwner = role == 'owner';
                             final username = profile['username'] ?? 'Unknown User';
                             final ministryRoles = (member['ministry_roles'] as List<dynamic>?)?.join(', ') ?? '';
                             final membershipId = member['id'];
-                            
-                            // Am I looking at myself?
                             final isMe = memberUserId == _currentUserId;
-                            
-                            // Permission: Can Edit Roles? (Admin or Manager)
-                            // We need to know if *current user* is manager. 
-                            // Since _hasDashboardAccess is (Admin || Staff), and Staff includes Usher.
-                            // We need more granular flag, or iterate permissions again.
-                            // Let's assume we store _isCurrentUserManager in state?
-                            
-                            // Hack: Re-derive or assuming we added it? 
-                            // I didn't add _isCurrentUserManager to state yet.
-                            // Let's use _isCurrentUserOrgAdmin OR (Manager Check).
-                            
-                            // Actually, let's just use `_hasDashboardAccess` but that includes Ushers.
-                            // Need to filter out Ushers.  
-                            // Let's just fix it properly by checking role right here? 
-                            // No, UI rebuilds. 
-                            
-                            // Let's add `_canManageRoles` to state.
-                            
+
                             return ListTile(
                               leading: CircleAvatar(
                                 backgroundColor: isOwner ? Colors.purple : (isManager ? Colors.amber : Colors.grey),
@@ -401,7 +422,6 @@ class _BranchControlScreenState extends State<BranchControlScreen> {
                               trailing: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  // 1. Owner Action: Make Manager (If not me)
                                   if (_isCurrentUserOrgAdmin && !isMe)
                                     ElevatedButton(
                                       onPressed: () => _promoteToManager(membershipId, role),
@@ -412,8 +432,6 @@ class _BranchControlScreenState extends State<BranchControlScreen> {
                                       child: Text(isManager ? 'Demote' : 'Promote', style: const TextStyle(fontSize: 12)),
                                     ),
                                     
-                                  // 2. Manager Action: Assign Roles 
-                                  // Show ONLY if I am Admin OR I am Manager (NOT just Usher)
                                   if (_canManageRoles) 
                                   IconButton(
                                     icon: const Icon(Icons.edit_note),
@@ -428,6 +446,290 @@ class _BranchControlScreenState extends State<BranchControlScreen> {
                 ),
               ],
             ),
+
+            // Tab 2: Info (Edit Branch)
+            SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: _BranchInfoForm(
+                organization: widget.organization,
+                branch: _currentBranch,
+                canEdit: _canManageRoles, 
+                orgRepo: _orgRepo,
+                onBranchUpdated: (updated) => setState(() => _currentBranch = updated),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BranchInfoForm extends StatefulWidget {
+  final Organization organization;
+  final Branch branch;
+  final bool canEdit;
+  final OrganizationRepository orgRepo;
+  final Function(Branch) onBranchUpdated;
+
+  const _BranchInfoForm({
+    required this.organization,
+    required this.branch,
+    required this.canEdit,
+    required this.orgRepo,
+    required this.onBranchUpdated,
+  });
+
+  @override
+  State<_BranchInfoForm> createState() => _BranchInfoFormState();
+}
+
+class _BranchInfoFormState extends State<_BranchInfoForm> {
+  late TextEditingController _nameCtrl;
+  late TextEditingController _acronymCtrl;
+  late TextEditingController _mobileCtrl;
+  late TextEditingController _landlineCtrl;
+  late TextEditingController _addressCtrl;
+  late TextEditingController _facebookCtrl;
+  late TextEditingController _websiteCtrl;
+  
+  bool _isSaving = false;
+  String? _displayAvatarUrl; // Local state for avatar
+
+  @override
+  void initState() {
+    super.initState();
+    _nameCtrl = TextEditingController(text: widget.branch.name);
+    _acronymCtrl = TextEditingController(text: widget.branch.acronym);
+    _mobileCtrl = TextEditingController(text: widget.branch.contactMobile);
+    _landlineCtrl = TextEditingController(text: widget.branch.contactLandline);
+    _addressCtrl = TextEditingController(text: widget.branch.address);
+    
+    final social = widget.branch.socialMediaLinks ?? {};
+    _facebookCtrl = TextEditingController(text: social['Facebook'] ?? '');
+    _websiteCtrl = TextEditingController(text: social['Website'] ?? '');
+    
+    _displayAvatarUrl = widget.branch.avatarUrl;
+  }
+
+  // ... dispose ...
+
+  Future<void> _save() async {
+    if (!widget.canEdit) return;
+    setState(() => _isSaving = true);
+
+    try {
+       final socialLinks = {
+        if (_facebookCtrl.text.isNotEmpty) 'Facebook': _facebookCtrl.text.trim(),
+        if (_websiteCtrl.text.isNotEmpty) 'Website': _websiteCtrl.text.trim(),
+      };
+
+      final updatedBranch = Branch(
+        id: widget.branch.id,
+        organizationId: widget.branch.organizationId,
+        name: _nameCtrl.text.trim(),
+        createdAt: widget.branch.createdAt,
+        acronym: _acronymCtrl.text.trim(),
+        contactMobile: _mobileCtrl.text.trim(),
+        contactLandline: _landlineCtrl.text.trim(),
+        address: _addressCtrl.text.trim(),
+        avatarUrl: widget.branch.avatarUrl,
+        socialMediaLinks: socialLinks.isEmpty ? null : socialLinks, 
+      );
+
+      await widget.orgRepo.updateBranchDetails(updatedBranch);
+
+      if (mounted) {
+        widget.onBranchUpdated(updatedBranch); // Update parent
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Branch details saved!')));
+        setState(() => _isSaving = false);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isSaving = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    }
+  }
+
+  // ... _pickAndUploadAvatar ...
+
+  Future<void> _pickAndUploadAvatar() async {
+    if (!widget.canEdit) return;
+
+    try {
+      final ImagePicker picker = ImagePicker();
+      final XFile? image = await picker.pickImage(source: ImageSource.gallery, maxWidth: 512, maxHeight: 512);
+      
+      if (image == null) return;
+
+      setState(() => _isSaving = true);
+      
+      final bytes = await image.readAsBytes();
+      final ext = image.name.split('.').last;
+      
+      // Upload returns the base URL
+      final url = await widget.orgRepo.uploadBranchAvatar(widget.branch.id, bytes, ext);
+      
+      // Cache Busting: Append timestamp
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final uniqueUrl = '$url?t=$timestamp';
+
+      // Create updated branch object
+      final socialLinks = {
+        if (_facebookCtrl.text.isNotEmpty) 'Facebook': _facebookCtrl.text.trim(),
+        if (_websiteCtrl.text.isNotEmpty) 'Website': _websiteCtrl.text.trim(),
+      };
+
+      final updatedBranch = Branch(
+        id: widget.branch.id,
+        organizationId: widget.branch.organizationId,
+        name: _nameCtrl.text.trim(),
+        createdAt: widget.branch.createdAt,
+        acronym: _acronymCtrl.text.trim(),
+        contactMobile: _mobileCtrl.text.trim(),
+        contactLandline: _landlineCtrl.text.trim(),
+        address: _addressCtrl.text.trim(),
+        avatarUrl: uniqueUrl, // Use unique URL for DB to persist the "version" or just URL? 
+        // Supabase storage URL is static. If we save "url?t=..." to DB, next fetch will have it. 
+        // This is good.
+        socialMediaLinks: socialLinks.isEmpty ? null : socialLinks, 
+      );
+
+      await widget.orgRepo.updateBranchDetails(updatedBranch);
+
+      if (mounted) {
+        widget.onBranchUpdated(updatedBranch); // Update parent
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Avatar updated!')));
+        setState(() {
+           _isSaving = false;
+           _displayAvatarUrl = uniqueUrl; // Update local state for immediate feedback
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isSaving = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload failed: $e')));
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+         Center(
+           child: Stack(
+             children: [
+               CircleAvatar(
+                 radius: 50,
+                 backgroundColor: Colors.grey.shade200,
+                 backgroundImage: _displayAvatarUrl != null 
+                    ? NetworkImage(_displayAvatarUrl!) 
+                    : null,
+                 child: _displayAvatarUrl == null 
+                    ? Text(widget.branch.name.substring(0, 1).toUpperCase(), style: const TextStyle(fontSize: 40))
+                    : null,
+               ),
+               if (widget.canEdit)
+                 Positioned(
+                   bottom: 0,
+                   right: 0,
+                   child: CircleAvatar(
+                     radius: 18,
+                     backgroundColor: Colors.deepPurple,
+                     child: IconButton(
+                       icon: const Icon(Icons.camera_alt, size: 18, color: Colors.white),
+                       onPressed: _isSaving ? null : _pickAndUploadAvatar,
+                     ),
+                   ),
+                 ),
+             ],
+           ),
+         ),
+        const SizedBox(height: 16),
+        
+        Text('Parent Org: ${widget.organization.name}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+        // ... rest of form
+        const Divider(),
+        const SizedBox(height: 16),
+
+        TextField(
+          controller: _nameCtrl,
+          enabled: widget.canEdit,
+          decoration: const InputDecoration(labelText: 'Branch Name', border: OutlineInputBorder()),
+        ),
+// ... keeping rest same ...
+        const SizedBox(height: 16),
+        
+        TextField(
+          controller: _acronymCtrl,
+          enabled: widget.canEdit,
+          decoration: const InputDecoration(labelText: 'Acronym (e.g. WFIM)', border: OutlineInputBorder()),
+        ),
+        const SizedBox(height: 16),
+
+        const Text('Contact Info', style: TextStyle(fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _mobileCtrl,
+                enabled: widget.canEdit,
+                decoration: const InputDecoration(labelText: 'Mobile', prefixIcon: Icon(Icons.smartphone), border: OutlineInputBorder()),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: TextField(
+                controller: _landlineCtrl,
+                enabled: widget.canEdit,
+                decoration: const InputDecoration(labelText: 'Landline', prefixIcon: Icon(Icons.phone), border: OutlineInputBorder()),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+
+        TextField(
+          controller: _addressCtrl,
+          enabled: widget.canEdit,
+          decoration: const InputDecoration(labelText: 'Location / Address', prefixIcon: Icon(Icons.location_on), border: OutlineInputBorder()),
+          maxLines: 2,
+        ),
+        const SizedBox(height: 24),
+        
+         const Text('Social Media', style: TextStyle(fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _facebookCtrl,
+          enabled: widget.canEdit,
+          decoration: const InputDecoration(labelText: 'Facebook URL', prefixIcon: Icon(Icons.facebook), border: OutlineInputBorder()),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _websiteCtrl,
+          enabled: widget.canEdit,
+          decoration: const InputDecoration(labelText: 'Website URL', prefixIcon: Icon(Icons.language), border: OutlineInputBorder()),
+        ),
+        const SizedBox(height: 24),
+
+        if (widget.canEdit)
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _isSaving ? null : _save,
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.all(16),
+                backgroundColor: Colors.deepPurple,
+                foregroundColor: Colors.white,
+              ),
+              child: _isSaving ? const CircularProgressIndicator(color: Colors.white) : const Text('Save Changes'),
+            ),
+          ),
+      ],
     );
   }
 }

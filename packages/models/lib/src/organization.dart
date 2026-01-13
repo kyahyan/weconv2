@@ -50,12 +50,28 @@ class Branch {
   final String name;
   @JsonKey(name: 'created_at')
   final DateTime createdAt;
+  final String? acronym;
+  @JsonKey(name: 'contact_mobile')
+  final String? contactMobile;
+  @JsonKey(name: 'contact_landline')
+  final String? contactLandline;
+  final String? address;
+  @JsonKey(name: 'avatar_url')
+  final String? avatarUrl;
+  @JsonKey(name: 'social_media_links')
+  final Map<String, dynamic>? socialMediaLinks;
 
   Branch({
     required this.id,
     required this.organizationId,
     required this.name,
     required this.createdAt,
+    this.acronym,
+    this.contactMobile,
+    this.contactLandline,
+    this.address,
+    this.avatarUrl,
+    this.socialMediaLinks,
   });
 
   factory Branch.fromJson(Map<String, dynamic> json) => _$BranchFromJson(json);

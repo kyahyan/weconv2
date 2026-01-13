@@ -86,6 +86,26 @@ class OrganizationRepository {
     return Organization.fromJson(response['organization']);
   }
 
+  Future<List<Organization>> getUserOrganizations() async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) return [];
+
+    final response = await _client
+        .from('organization_members')
+        .select('organization:organizations(*)')
+        .eq('user_id', userId);
+
+    final uniqueOrgs = <String, Organization>{};
+    for (var item in response) {
+      if (item['organization'] != null) {
+        final org = Organization.fromJson(item['organization']);
+        uniqueOrgs[org.id] = org;
+      }
+    }
+
+    return uniqueOrgs.values.toList();
+  }
+
   // Branch Management
   Future<List<Branch>> getBranches(String orgId) async {
     final response = await _client
@@ -100,6 +120,14 @@ class OrganizationRepository {
       'organization_id': orgId,
       'name': branchName,
     });
+  }
+
+  Future<void> updateBranchDetails(Branch branch) async {
+    await _client.from('branches').update(branch.toJson()).eq('id', branch.id);
+  }
+
+  Future<void> deleteBranch(String branchId) async {
+    await _client.from('branches').delete().eq('id', branchId);
   }
 
   Future<List<Organization>> getApprovedOrganizations() async {
@@ -356,6 +384,16 @@ class OrganizationRepository {
 
   Future<String> uploadOrganizationAvatar(String orgId, List<int> fileBytes, String fileExtension) async {
     final fileName = 'organizations/$orgId/avatar.$fileExtension';
+    await _client.storage.from('avatars').uploadBinary(
+      fileName,
+      Uint8List.fromList(fileBytes),
+      fileOptions: const FileOptions(upsert: true),
+    );
+    return _client.storage.from('avatars').getPublicUrl(fileName);
+  }
+
+  Future<String> uploadBranchAvatar(String branchId, List<int> fileBytes, String fileExtension) async {
+    final fileName = 'branches/$branchId/avatar.$fileExtension';
     await _client.storage.from('avatars').uploadBinary(
       fileName,
       Uint8List.fromList(fileBytes),

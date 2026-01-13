@@ -7,13 +7,22 @@ class ServiceRepository {
 
   final SupabaseClient _client;
 
-  Future<List<Service>> getServices(DateTime start, DateTime end) async {
-    final response = await _client
+  Future<List<Service>> getServices(DateTime start, DateTime end, {List<String>? orgIds, String? branchId}) async {
+    var query = _client
         .from('services')
         .select()
         .gte('date', start.toIso8601String())
-        .lte('date', end.toIso8601String())
-        .order('date');
+        .lte('date', end.toIso8601String()); // Use lte or lt? usually lte for inclusive
+
+    if (orgIds != null && orgIds.isNotEmpty) {
+      query = query.filter('organization_id', 'in', orgIds);
+    }
+    
+    if (branchId != null) {
+      query = query.eq('branch_id', branchId);
+    }
+
+    final response = await query.order('date');
 
     return (response as List).map((e) => Service.fromJson(e)).toList();
   }
@@ -23,6 +32,8 @@ class ServiceRepository {
     required String title,
     String? worshipLeaderId,
     DateTime? endTime,
+    String? orgId,
+    String? branchId,
   }) async {
     final response = await _client
         .from('services')
@@ -31,6 +42,8 @@ class ServiceRepository {
           'title': title,
           'worship_leader_id': worshipLeaderId,
           'end_time': endTime?.toUtc().toIso8601String(),
+          if (orgId != null) 'organization_id': orgId,
+          if (branchId != null) 'branch_id': branchId,
         })
         .select()
         .single();
@@ -42,7 +55,7 @@ class ServiceRepository {
     await _client.from('services').delete().eq('id', id);
   }
 
-  Future<bool> checkServiceConflict(DateTime start, DateTime end) async {
+  Future<bool> checkServiceConflict(DateTime start, DateTime end, {String? orgId, String? branchId}) async {
     // Check for overlap: (StartA < EndB) and (EndA > StartB)
     
     // Widen the search window to catch services that started previous day but overlap today
@@ -57,11 +70,16 @@ class ServiceRepository {
     print('  Input End:   $end (isUtc: ${end.isUtc})');
     print('  Query Range: $queryStart to $queryEnd');
 
-    final response = await _client
+    var query = _client
         .from('services')
         .select()
         .gte('date', queryStart.toIso8601String())
         .lt('date', queryEnd.toIso8601String());
+
+    if (orgId != null) query = query.eq('organization_id', orgId);
+    if (branchId != null) query = query.eq('branch_id', branchId);
+
+    final response = await query;
         
     final potentialConflicts = (response as List).map((e) => Service.fromJson(e)).toList();
     

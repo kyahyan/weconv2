@@ -10,8 +10,10 @@ import 'components/form_builder_dialog.dart';
 
 class ActivityDetailScreen extends StatefulWidget {
   final Activity? activity;
+  final String? targetOrgId;
+  final String? targetBranchId;
 
-  const ActivityDetailScreen({super.key, this.activity});
+  const ActivityDetailScreen({super.key, this.activity, this.targetOrgId, this.targetBranchId});
 
   @override
   State<ActivityDetailScreen> createState() => _ActivityDetailScreenState();
@@ -97,7 +99,12 @@ class _ActivityDetailScreenState extends State<ActivityDetailScreen> {
       if (widget.activity != null) {
         await _activityRepo.updateActivity(activity, _imageFile);
       } else {
-        await _activityRepo.createActivity(activity, _imageFile);
+        await _activityRepo.createActivity(
+          activity, 
+          _imageFile, 
+          orgId: widget.targetOrgId, 
+          branchId: widget.targetBranchId
+        );
       }
 
       if (mounted) {

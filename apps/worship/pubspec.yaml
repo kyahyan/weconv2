@@ -43,6 +43,8 @@ dependencies:
   core:
     path: ../../packages/core
   intl: ^0.18.1
+  mobile_scanner: ^5.1.1
+  uuid: ^4.0.0
 
 dev_dependencies:
   flutter_test:

@@ -6,6 +6,7 @@ class Announcement extends Equatable {
   final String content;
   final DateTime createdAt;
   final String organizationId;
+  final String? branchId;
 
   const Announcement({
     required this.id,
@@ -13,6 +14,7 @@ class Announcement extends Equatable {
     required this.content,
     required this.createdAt,
     required this.organizationId,
+    this.branchId,
   });
 
   factory Announcement.fromJson(Map<String, dynamic> json) {
@@ -22,6 +24,7 @@ class Announcement extends Equatable {
       content: json['content'] as String,
       createdAt: DateTime.parse(json['created_at'] as String),
       organizationId: json['organization_id'] as String,
+      branchId: json['branch_id'] as String?,
     );
   }
 
@@ -32,9 +35,10 @@ class Announcement extends Equatable {
       'content': content,
       'created_at': createdAt.toIso8601String(),
       'organization_id': organizationId,
+      'branch_id': branchId,
     };
   }
 
   @override
-  List<Object?> get props => [id, title, content, createdAt, organizationId];
+  List<Object?> get props => [id, title, content, createdAt, organizationId, branchId];
 }

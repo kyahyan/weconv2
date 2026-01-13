@@ -25,20 +25,55 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
   Future<void> _fetchData() async {
     try {
       final now = DateTime.now();
+      final orgRepo = OrganizationRepository();
       
-      // 1. Fetch Announcements
-      final announcements = await AnnouncementRepository().getAnnouncements();
+      // 1. Get User Context (Orgs and Branches)
+      final pdfs = await orgRepo.getUserOrganizations();
+      final orgIds = pdfs.map((o) => o.id).toList();
+      
+      final Set<String> myBranchIds = {};
+      for (final orgId in orgIds) {
+        final branches = await orgRepo.getJoinedBranchIds(orgId);
+        myBranchIds.addAll(branches);
+      }
 
-      // 2. Fetch Activities for today (and filter for ongoing)
-      // We fetch a broad range to be safe, filtering in memory often easier for small datasets
+      if (orgIds.isEmpty) {
+        if (mounted) setState(() { _isLoading = false; _announcements = []; _ongoingActivities = []; });
+        return;
+      }
+
+      // 2. Fetch Announcements (Org Filtered)
+      // We explicitly pass orgIds so we only get relevant ones.
+      final announcements = await AnnouncementRepository().getAnnouncements(orgIds: orgIds);
+      
+      // 3. Filter Announcements by Branch (Client Side)
+      final filteredAnnouncements = announcements.where((a) {
+        if (a.branchId == null) return true; // Show Org-Wide
+        return myBranchIds.contains(a.branchId); // Show only if I'm in that branch
+      }).toList();
+
+      // 4. Fetch Activities (Org Filtered)
       final startOfDay = DateTime(now.year, now.month, now.day);
       final activities = await ActivityRepository().getActivities(
           startOfDay, 
-          now.add(const Duration(days: 7)) // Fetch next 7 days just in case
+          now.add(const Duration(days: 7)),
+          orgIds: orgIds
       );
       
-      // Filter for ONGOING: StartTime <= Now <= EndTime
+      // 5. Filter Activities by Branch & Ongoing
+      debugPrint("DEBUG: User Branch IDs: $myBranchIds");
+      
       final ongoing = activities.where((a) {
+         // Debug Log per activity
+         // debugPrint("DEBUG: Checking Activity '${a.title}' - BranchID: ${a.branchId} - IsMyBranch: ${myBranchIds.contains(a.branchId)}");
+
+         // Branch Check
+         if (a.branchId != null && !myBranchIds.contains(a.branchId)) {
+           debugPrint("DEBUG: Hiding Activity '${a.title}' (Branch mismatch)");
+           return false;
+         }
+
+         // Time Check
          final start = a.startTime.toLocal();
          final end = a.endTime.toLocal();
          return now.isAfter(start) && now.isBefore(end);
@@ -46,12 +81,13 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
 
       if (mounted) {
         setState(() {
-          _announcements = announcements;
+          _announcements = filteredAnnouncements;
           _ongoingActivities = ongoing;
           _isLoading = false;
         });
       }
     } catch (e) {
+      debugPrint("Error fetching data: $e");
       if (mounted) setState(() => _isLoading = false);
     }
   }

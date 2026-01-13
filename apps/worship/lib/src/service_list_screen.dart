@@ -4,6 +4,7 @@ import 'package:models/models.dart';
 import 'package:ui_kit/ui_kit.dart';
 import 'package:intl/intl.dart';
 import 'music_stand_screen.dart';
+import 'musician_dashboard.dart';
 
 class ServiceListScreen extends StatefulWidget {
   const ServiceListScreen({super.key});
@@ -16,6 +17,8 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
   final _serviceRepo = ServiceRepository();
   List<Service> _services = [];
   bool _isLoading = true;
+  bool _isMusician = false;
+  final _orgRepo = OrganizationRepository();
 
   @override
   void initState() {
@@ -28,6 +31,9 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
     final now = DateTime.now();
     final start = now.subtract(const Duration(days: 7));
     final end = now.add(const Duration(days: 30));
+
+    // Check roles
+    _checkRole();
 
     try {
       final services = await _serviceRepo.getServices(start, end);
@@ -49,12 +55,46 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
     }
   }
 
+  Future<void> _checkRole() async {
+    // We need to check if ANY of the user's memberships have 'Musician' role
+    final org = await _orgRepo.getUserOrganization();
+    if (org != null) {
+      final memberships = await _orgRepo.getUserBranchData(org.id);
+      
+      bool hasMusicianRole = false;
+      for (var m in memberships) {
+        final roles = List<String>.from(m['ministry_roles'] ?? []);
+        if (roles.contains('Musician')) {
+          hasMusicianRole = true;
+          break;
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _isMusician = hasMusicianRole;
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Worship Setlists'),
         actions: [
+          if (_isMusician)
+            IconButton(
+              icon: const Icon(Icons.piano, color: Colors.deepPurple),
+              tooltip: 'Musician Dashboard',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const MusicianDashboard()),
+                );
+              },
+            ),
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () => AuthService().signOut(),

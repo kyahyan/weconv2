@@ -25,20 +25,41 @@ class _EventListScreenState extends State<EventListScreen> {
 
   Future<void> _loadEvents() async {
     try {
+      final orgRepo = OrganizationRepository();
       final now = DateTime.now();
+
+      // 1. Get User Context
+      final pdfs = await orgRepo.getUserOrganizations();
+      final orgIds = pdfs.map((o) => o.id).toList();
+
+      if (orgIds.isEmpty) {
+        if (mounted) setState(() { _isLoading = false; _activities = []; });
+        return;
+      }
+      
+      final Set<String> myBranchIds = {};
+      for (final orgId in orgIds) {
+        final branches = await orgRepo.getJoinedBranchIds(orgId);
+        myBranchIds.addAll(branches);
+      }
+
       final startOfDay = DateTime(now.year, now.month, now.day);
       // Fetch events starting from today for the next 3 months
       final activities = await _activityRepo.getActivities(
         startOfDay, 
-        now.add(const Duration(days: 90))
+        now.add(const Duration(days: 90)),
+        orgIds: orgIds,
       );
       
       if (mounted) {
         setState(() {
-          _activities = activities.where((a) => 
-            a.isRegistrationRequired && 
-            a.endTime.toLocal().isAfter(DateTime.now())
-          ).toList(); 
+          _activities = activities.where((a) {
+            // Branch Filter
+            if (a.branchId != null && !myBranchIds.contains(a.branchId)) return false;
+
+            // Existing filters (Showing all future/current events, regardless of registration)
+            return a.endTime.toLocal().isAfter(DateTime.now());
+          }).toList(); 
           _isLoading = false;
         });
       }

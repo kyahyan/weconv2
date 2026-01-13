@@ -18,13 +18,37 @@ class _DashboardScreenState extends State<DashboardScreen> {
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
   final _serviceRepo = ServiceRepository();
+  final _orgRepo = OrganizationRepository();
   List<Service> _services = [];
+  
+  String? _currentOrgId;
+  String? _currentBranchId;
 
   @override
   void initState() {
     super.initState();
     _selectedDay = _focusedDay;
-    _fetchServices();
+    _loadUserContext();
+  }
+
+  Future<void> _loadUserContext() async {
+    try {
+      final orgs = await _orgRepo.getUserOrganizations();
+      if (orgs.isNotEmpty) {
+        _currentOrgId = orgs.first.id;
+        // Fetch branch assignments for this org
+        final membershipData = await _orgRepo.getUserBranchData(_currentOrgId!);
+        if (membershipData.isNotEmpty) {
+          // Just pick the first verified branch membership
+          _currentBranchId = membershipData.first['branch_id'];
+        }
+      }
+      debugPrint("DEBUG: Planning Dashboard Context - Org: $_currentOrgId, Branch: $_currentBranchId");
+      if (mounted) setState(() {});
+      _fetchServices();
+    } catch (e) {
+      debugPrint("Error loading context: $e");
+    }
   }
 
   Future<void> _fetchServices() async {
@@ -33,7 +57,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final end = DateTime(_focusedDay.year, _focusedDay.month + 1, 0);
     
     try {
-      final services = await _serviceRepo.getServices(start, end);
+      final services = await _serviceRepo.getServices(
+        start, 
+        end, 
+        orgIds: _currentOrgId != null ? [_currentOrgId!] : null, 
+        branchId: _currentBranchId
+      );
       setState(() {
         _services = services;
       });
@@ -87,7 +116,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
         onPressed: () async {
            final result = await Navigator.push(
              context,
-             MaterialPageRoute(builder: (_) => const ActivityDetailScreen()),
+             MaterialPageRoute(builder: (_) => ActivityDetailScreen(
+               targetOrgId: _currentOrgId,
+               targetBranchId: _currentBranchId,
+             )),
            );
            if (result == true) {
              setState(() {}); 
@@ -98,7 +130,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       body: FutureBuilder<List<Activity>>(
         future: ActivityRepository().getActivities(
           DateTime(_focusedDay.year, _focusedDay.month, 1), 
-          DateTime(_focusedDay.year, _focusedDay.month + 1, 0)
+          DateTime(_focusedDay.year, _focusedDay.month + 1, 0),
+          orgIds: _currentOrgId != null ? [_currentOrgId!] : null,
+          branchId: _currentBranchId,
         ),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
@@ -480,6 +514,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       date: startDateTime, // createService converts to UTC
                       title: titleController.text,
                       endTime: endDateTime, // createService converts to UTC
+                      orgId: _currentOrgId,
+                      branchId: _currentBranchId,
                     );
                     if (mounted) {
                       Navigator.pop(ctx);
@@ -540,6 +576,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       await AnnouncementRepository().createAnnouncement(
                         titleController.text,
                         contentController.text,
+                        orgId: _currentOrgId,
+                        branchId: _currentBranchId,
                       );
                       if (context.mounted) Navigator.pop(ctx);
                       setState(() {});
@@ -553,7 +591,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
          child: const Icon(Icons.add),
       ),
       body: FutureBuilder<List<Announcement>>(
-        future: AnnouncementRepository().getAnnouncements(),
+        future: AnnouncementRepository().getAnnouncements(
+          orgIds: _currentOrgId != null ? [_currentOrgId!] : null,
+          branchId: _currentBranchId,
+        ),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
           if (snapshot.hasError) return Center(child: Text("Error: ${snapshot.error}"));

@@ -4,24 +4,28 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 class AnnouncementRepository {
   final SupabaseClient _client = Supabase.instance.client;
 
-  Future<List<Announcement>> getAnnouncements() async {
-    final response = await _client
-        .from('announcements')
-        .select()
-        .order('created_at', ascending: false);
+  Future<List<Announcement>> getAnnouncements({List<String>? orgIds, String? branchId}) async {
+    var query = _client.from('announcements').select();
+
+    if (orgIds != null && orgIds.isNotEmpty) {
+      query = query.filter('organization_id', 'in', orgIds);
+    }
+    
+    if (branchId != null) {
+      query = query.eq('branch_id', branchId);
+    }
+
+    final response = await query.order('created_at', ascending: false);
     
     return (response as List).map((json) => Announcement.fromJson(json)).toList();
   }
 
-  Future<void> createAnnouncement(String title, String content) async {
+  Future<void> createAnnouncement(String title, String content, {String? orgId, String? branchId}) async {
     await _client.from('announcements').insert({
       'title': title,
       'content': content,
-      // organization_id is handled by default if auth.uid() matches, 
-      // but strictly we should pass it or let RLS/default handle it. 
-      // The migration I wrote uses default auth.uid() if not passed? 
-      // Wait, my migration has 'organization_id uuid not null default auth.uid()'.
-      // So I don't strictly need to pass it if the user is logged in.
+      if (orgId != null) 'organization_id': orgId,
+      if (branchId != null) 'branch_id': branchId,
     });
   }
 

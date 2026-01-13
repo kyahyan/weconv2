@@ -14,6 +14,8 @@ Service _$ServiceFromJson(Map<String, dynamic> json) => Service(
       endTime: json['end_time'] == null
           ? null
           : DateTime.parse(json['end_time'] as String),
+      organizationId: json['organization_id'] as String?,
+      branchId: json['branch_id'] as String?,
     );
 
 Map<String, dynamic> _$ServiceToJson(Service instance) => <String, dynamic>{
@@ -22,4 +24,6 @@ Map<String, dynamic> _$ServiceToJson(Service instance) => <String, dynamic>{
       'title': instance.title,
       'worship_leader_id': instance.worshipLeaderId,
       'end_time': instance.endTime?.toIso8601String(),
+      'organization_id': instance.organizationId,
+      'branch_id': instance.branchId,
     };

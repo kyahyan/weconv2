@@ -16,6 +16,8 @@ class Activity extends Equatable {
   final bool isRegistrationRequired;
   final ActivityFormConfig? formConfig;
   final DateTime? createdAt;
+  final String? organizationId;
+  final String? branchId;
 
   const Activity({
     required this.id,
@@ -28,6 +30,8 @@ class Activity extends Equatable {
     this.isRegistrationRequired = false,
     this.formConfig,
     this.createdAt,
+    this.organizationId,
+    this.branchId,
   });
 
   factory Activity.fromJson(Map<String, dynamic> json) => _$ActivityFromJson(json);
@@ -44,6 +48,8 @@ class Activity extends Equatable {
     bool? isRegistrationRequired,
     ActivityFormConfig? formConfig,
     DateTime? createdAt,
+    String? organizationId,
+    String? branchId,
   }) {
     return Activity(
       id: id ?? this.id,
@@ -56,6 +62,8 @@ class Activity extends Equatable {
       isRegistrationRequired: isRegistrationRequired ?? this.isRegistrationRequired,
       formConfig: formConfig ?? this.formConfig,
       createdAt: createdAt ?? this.createdAt,
+      organizationId: organizationId ?? this.organizationId,
+      branchId: branchId ?? this.branchId,
     );
   }
 
@@ -71,5 +79,7 @@ class Activity extends Equatable {
         isRegistrationRequired,
         formConfig,
         createdAt,
+        organizationId,
+        branchId,
       ];
 }

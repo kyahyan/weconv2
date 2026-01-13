@@ -15,4 +15,5 @@ export 'src/widgets/organization_admin_dashboard.dart';
 export 'src/widgets/organization_list_screen.dart';
 export 'src/widgets/organization_detail_screen.dart';
 export 'src/widgets/branch_control_screen.dart';
+export 'src/screens/common_profile_screen.dart';
 
