@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:models/models.dart';
 import 'attendance_detail_screen.dart';
 import 'attendance_statistics_screen.dart';
+import 'activity_checkin_screen.dart';
 
 class UsheringDashboard extends StatelessWidget {
   final String branchId;
@@ -19,7 +20,7 @@ class UsheringDashboard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 2,
+      length: 3,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Ushering Dashboard'),
@@ -27,6 +28,7 @@ class UsheringDashboard extends StatelessWidget {
             tabs: [
               Tab(text: 'Attendance', icon: Icon(Icons.calendar_today)),
               Tab(text: 'Members', icon: Icon(Icons.people)),
+              Tab(text: 'Activities', icon: Icon(Icons.event_available)),
             ],
           ),
         ),
@@ -35,6 +37,7 @@ class UsheringDashboard extends StatelessWidget {
           children: [
             _AttendanceSection(branchId: branchId, ownerId: ownerId),
             _MembersSection(branchId: branchId, ownerId: ownerId),
+            _ActivitySection(branchId: branchId, ownerId: ownerId),
           ],
         ),
       ),
@@ -664,6 +667,92 @@ class _MembersSectionState extends State<_MembersSection> {
              onPressed: () => _showEditDialog(m),
            ),
          );
+      },
+    );
+  }
+}
+
+// -----------------------------------------------------------------------------
+// SECTION 3: ACTIVITIES (New)
+// -----------------------------------------------------------------------------
+class _ActivitySection extends StatefulWidget {
+  final String branchId;
+  final String ownerId;
+  const _ActivitySection({required this.branchId, required this.ownerId});
+
+  @override
+  State<_ActivitySection> createState() => _ActivitySectionState();
+}
+
+class _ActivitySectionState extends State<_ActivitySection> {
+  final _activityRepo = ActivityRepository();
+  List<Activity> _activities = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadActivities();
+  }
+
+  Future<void> _loadActivities() async {
+    setState(() => _isLoading = true);
+    try {
+      // Fetch upcoming activities for this month/next month context
+      // For simplicity, let's fetch a broad range for now
+      final now = DateTime.now();
+      final activities = await _activityRepo.getActivities(
+        now.subtract(const Duration(days: 7)), 
+        now.add(const Duration(days: 30))
+      );
+      
+      if (mounted) {
+        setState(() {
+          _activities = activities.where((a) => a.isRegistrationRequired).toList(); // Only show ones needing check-in
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) return const Center(child: CircularProgressIndicator());
+    
+    if (_activities.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.event_busy, size: 64, color: Colors.grey),
+            const SizedBox(height: 16),
+            const Text("No upcoming activities found.", style: TextStyle(color: Colors.grey)),
+            TextButton(onPressed: _loadActivities, child: const Text("Refresh")),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      itemCount: _activities.length,
+      itemBuilder: (context, index) {
+        final activity = _activities[index];
+        return Card(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: ListTile(
+            leading: activity.imageUrl != null 
+                ? CircleAvatar(backgroundImage: NetworkImage(activity.imageUrl!))
+                : const CircleAvatar(child: Icon(Icons.event)),
+            title: Text(activity.title),
+            subtitle: Text("${activity.startTime.toLocal()}".split('.')[0]),
+            trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+            onTap: () {
+              Navigator.push(context, MaterialPageRoute(builder: (_) => ActivityCheckInScreen(activity: activity)));
+            },
+          ),
+        );
       },
     );
   }

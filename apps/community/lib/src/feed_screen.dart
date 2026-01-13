@@ -4,6 +4,8 @@ import 'package:models/models.dart';
 import 'package:ui_kit/ui_kit.dart';
 import 'package:intl/intl.dart';
 import 'profile_screen.dart';
+import 'event_list_screen.dart';
+import 'announcements_screen.dart';
 
 class FeedScreen extends StatefulWidget {
   const FeedScreen({super.key});
@@ -40,27 +42,20 @@ class _FeedScreenState extends State<FeedScreen> {
       bool isOrgAdmin = false;
       String? orgStatus;
       
-      print("_checkAccess: UserOrg: $org");
-
       if (org != null) {
           orgStatus = org.status;
-          print("_checkAccess: OrgStatus: $orgStatus");
-          
+  
           if (org.status == 'approved') {
                // Robust Check: Owner OR Admin/Manager Role
                final currentUserId = Supabase.instance.client.auth.currentUser?.id;
                final isOwner = currentUserId != null && org.ownerId == currentUserId;
                
                if (isOwner) {
-                 print("_checkAccess: User is OWNER. Granting access.");
                  isOrgAdmin = true;
                } else {
                  isOrgAdmin = await _orgRepo.canAccessDashboard(); 
-                 print("_checkAccess: isOrgAdmin (DB check): $isOrgAdmin");
                }
           }
-      } else {
-        print("_checkAccess: Organization is NULL for this user.");
       }
 
       if (mounted) {
@@ -77,7 +72,6 @@ class _FeedScreenState extends State<FeedScreen> {
         }
       }
     } catch (e) {
-      print("_checkAccess: Error: $e");
       if (mounted) {
         setState(() => _isLoading = false);
         _fetchFeed();
@@ -166,13 +160,16 @@ class _FeedScreenState extends State<FeedScreen> {
     }
 
     return DefaultTabController(
-      length: 2,
+      length: 4,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Home'),
           bottom: const TabBar(
+            isScrollable: true,
             tabs: [
               Tab(text: 'Feed', icon: Icon(Icons.dynamic_feed)),
+              Tab(text: 'Announcements', icon: Icon(Icons.campaign)),
+              Tab(text: 'Events', icon: Icon(Icons.event)),
               Tab(text: 'Churches', icon: Icon(Icons.church)),
             ],
           ),
@@ -283,8 +280,14 @@ class _FeedScreenState extends State<FeedScreen> {
                         },
                       ),
                   ),
+
+                   // Tab 2: Announcements
+                  const AnnouncementsScreen(),
                   
-                  // Tab 2: Churches (Organizations)
+                  // Tab 3: Events
+                  const EventListScreen(),
+                  
+                  // Tab 4: Churches
                   const OrganizationListScreen(),
                 ],
               ),
@@ -296,4 +299,3 @@ class _FeedScreenState extends State<FeedScreen> {
     );
   }
 }
-

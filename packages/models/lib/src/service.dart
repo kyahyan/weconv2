@@ -7,9 +7,10 @@ part 'service.g.dart';
 class Service extends Equatable {
   const Service({
     required this.id,
-    required this.date,
+    required this.date, // This acts as Start Time
     required this.title,
     this.worshipLeaderId,
+    this.endTime,
   });
 
   factory Service.fromJson(Map<String, dynamic> json) =>
@@ -22,8 +23,11 @@ class Service extends Equatable {
   @JsonKey(name: 'worship_leader_id')
   final String? worshipLeaderId;
 
+  @JsonKey(name: 'end_time')
+  final DateTime? endTime;
+
   Map<String, dynamic> toJson() => _$ServiceToJson(this);
 
   @override
-  List<Object?> get props => [id, date, title, worshipLeaderId];
+  List<Object?> get props => [id, date, title, worshipLeaderId, endTime];
 }

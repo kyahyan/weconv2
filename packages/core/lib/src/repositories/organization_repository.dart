@@ -313,6 +313,43 @@ class OrganizationRepository {
       return false;
     }
   }
+
+  // Check if user has access to the Planning App (Secretary or Admin)
+  Future<bool> canAccessPlanning() async {
+    try {
+      final userId = _client.auth.currentUser?.id;
+      if (userId == null) return false;
+
+      final response = await _client
+          .from('organization_members')
+          .select('role, ministry_roles')
+          .eq('user_id', userId);
+
+      if ((response as List).isEmpty) return false;
+
+      // Check if ANY membership grants access
+      for (var membership in response) {
+        final role = membership['role'] as String? ?? '';
+        final ministryRoles = List<String>.from(membership['ministry_roles'] ?? []);
+        
+        // System roles that usually have access
+        if (['owner', 'admin'].contains(role)) return true; // Manager might not be enough? Let's say yes for now.
+
+        // Specific Ministry Role
+        // Check case-insensitive to be safe? Or strict? The implementation in UI is capitalized 'Secretary' usually.
+        // Let's do strict contains similar to how we save it.
+        if (ministryRoles.contains('Secretary')) return true;
+        
+        // Also check case-insensitive match just in case
+        if (ministryRoles.any((r) => r.toLowerCase() == 'secretary')) return true;
+      }
+      
+      return false;
+    } catch (e) {
+      print("canAccessPlanning: Error: $e");
+      return false;
+    }
+  }
   Future<void> updateOrganizationDetails(Organization org) async {
     await _client.from('organizations').update(org.toJson()).eq('id', org.id);
   }

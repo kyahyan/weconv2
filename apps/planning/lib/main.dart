@@ -1,6 +1,7 @@
 import 'package:core/core.dart';
 import 'package:flutter/material.dart';
 import 'package:ui_kit/ui_kit.dart';
+import 'src/dashboard_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -45,9 +46,38 @@ class _AuthGateState extends State<AuthGate> {
           return const Scaffold(body: Center(child: CircularProgressIndicator()));
         }
 
-        final user = snapshot.data;
         if (snapshot.hasData) {
-          return const DashboardScreen();
+          // Check for permission logic
+          return FutureBuilder<bool>(
+            future: OrganizationRepository().canAccessPlanning(),
+            builder: (context, permSnapshot) {
+               if(permSnapshot.connectionState == ConnectionState.waiting) {
+                 return const Scaffold(body: Center(child: CircularProgressIndicator()));
+               }
+               
+               if(permSnapshot.data == true) {
+                 return const DashboardScreen();
+               }
+
+               return Scaffold(
+                 body: Center(
+                   child: Column(
+                     mainAxisAlignment: MainAxisAlignment.center,
+                     children: [
+                       const Text("Access Denied", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                       const SizedBox(height: 16),
+                       const Text("You must have the 'Secretary' Ministry Role to access this app."),
+                       const SizedBox(height: 32),
+                       ElevatedButton(
+                         onPressed: () => _authService.signOut(),
+                         child: const Text('Sign Out'),
+                       ),
+                     ],
+                   ),
+                 ),
+               );
+            },
+          );
         }
 
         return LoginScreen(
@@ -60,26 +90,6 @@ class _AuthGateState extends State<AuthGate> {
           },
         );
       },
-    );
-  }
-}
-
-class DashboardScreen extends StatelessWidget {
-  const DashboardScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Planning Dashboard'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () => AuthService().signOut(),
-          ),
-        ],
-      ),
-      body: const Center(child: Text('Welcome to Planning App!')),
     );
   }
 }
