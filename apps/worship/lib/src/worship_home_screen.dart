@@ -118,6 +118,9 @@ class _WorshipHomeScreenState extends State<WorshipHomeScreen> {
                 },
               ),
           
+          // Notifications
+          const NotificationBell(),
+
           // Avatar / Profile
           IconButton(
             icon: const CircleAvatar(

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:models/models.dart';
 import 'organization_detail_screen.dart';
 import 'organization_admin_dashboard.dart';
+import '../screens/notification_screen.dart';
 
 class OrganizationListScreen extends StatefulWidget {
   const OrganizationListScreen({super.key});
@@ -62,58 +63,70 @@ class _OrganizationListScreenState extends State<OrganizationListScreen> {
     }
 
     if (_organizations.isEmpty) {
-      return const Center(child: Text('No organizations found.'));
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Communities'),
+          actions: const [NotificationBell()],
+        ),
+        body: const Center(child: Text('No organizations found.')),
+      );
     }
 
-    return RefreshIndicator(
-      onRefresh: () async {
-        await _fetchOrganizations();
-        await _checkUserStatus();
-      },
-      child: ListView.builder(
-        padding: const EdgeInsets.all(8),
-        itemCount: _organizations.length,
-        itemBuilder: (context, index) {
-          final org = _organizations[index];
-          // Check if this is the user's managed org
-          final isManagedOrg = _isOrgAdmin && _userOrg?.id == org.id;
-
-          return Card(
-            child: ListTile(
-              leading: CircleAvatar(
-                backgroundImage: org.avatarUrl != null ? NetworkImage(org.avatarUrl!) : null,
-                child: org.avatarUrl == null ? const Icon(Icons.church) : null,
-              ),
-              title: Text(org.name),
-              subtitle: Text(org.location ?? 'Organization'),
-              trailing: isManagedOrg 
-                  ? OutlinedButton(
-                      style: OutlinedButton.styleFrom(
-                        visualDensity: VisualDensity.compact,
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                      ),
-                      onPressed: () {
-                         Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => OrganizationAdminDashboard(organization: org),
-                          ),
-                        );
-                      },
-                      child: const Text('Manage', style: TextStyle(fontSize: 12)),
-                    )
-                  : const Icon(Icons.chevron_right),
-              onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => OrganizationDetailScreen(organization: org),
-                    ),
-                  );
-              },
-            ),
-          );
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Communities'),
+        actions: const [NotificationBell()],
+      ),
+      body: RefreshIndicator(
+        onRefresh: () async {
+          await _fetchOrganizations();
+          await _checkUserStatus();
         },
+        child: ListView.builder(
+          padding: const EdgeInsets.all(8),
+          itemCount: _organizations.length,
+          itemBuilder: (context, index) {
+            final org = _organizations[index];
+            // Check if this is the user's managed org
+            final isManagedOrg = _isOrgAdmin && _userOrg?.id == org.id;
+
+            return Card(
+              child: ListTile(
+                leading: CircleAvatar(
+                  backgroundImage: org.avatarUrl != null ? NetworkImage(org.avatarUrl!) : null,
+                  child: org.avatarUrl == null ? const Icon(Icons.church) : null,
+                ),
+                title: Text(org.name),
+                subtitle: Text(org.location ?? 'Organization'),
+                trailing: isManagedOrg 
+                    ? OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                        ),
+                        onPressed: () {
+                           Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => OrganizationAdminDashboard(organization: org),
+                            ),
+                          );
+                        },
+                        child: const Text('Manage', style: TextStyle(fontSize: 12)),
+                      )
+                    : const Icon(Icons.chevron_right),
+                onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => OrganizationDetailScreen(organization: org),
+                      ),
+                    );
+                },
+              ),
+            );
+          },
+        ),
       ),
     );
   }

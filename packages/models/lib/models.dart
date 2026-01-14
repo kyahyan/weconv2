@@ -12,3 +12,4 @@ export 'src/activity.dart';
 export 'src/form_config.dart';
 export 'src/activity_registration.dart';
 export 'src/announcement.dart';
+export 'src/notification.dart';

@@ -18,6 +18,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
   final _serviceRepo = ServiceRepository();
   final _songRepo = SongRepository();
   final _orgRepo = OrganizationRepository();
+  final _notificationRepo = NotificationRepository();
   
   List<ServiceItem> _items = [];
   List<Map<String, dynamic>> _members = [];
@@ -132,6 +133,53 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
       child: Scaffold(
         appBar: AppBar(
           title: Text(widget.service.title),
+          actions: [
+            Padding(
+              padding: const EdgeInsets.only(right: 8.0),
+              child: OutlinedButton.icon(
+                onPressed: () async {
+                   final confirm = await showDialog<bool>(
+                     context: context,
+                     builder: (c) => AlertDialog(
+                       title: const Text('Notify Team?'),
+                       content: const Text('This will send a notification to all assigned members.'),
+                       actions: [
+                         TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
+                         TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('Notify')),
+                       ],
+                     ),
+                   );
+                   
+                   if (confirm == true) {
+                      try {
+                        final count = await _notificationRepo.notifyTeam(widget.service.id, widget.service.title);
+                        if (context.mounted) {
+                           ShadToaster.of(context).show(
+                             ShadToast(
+                               title: const Text('Success'),
+                               description: Text('Notified $count members'), 
+                               backgroundColor: Colors.green.shade100,
+                             ),
+                           );
+                        }
+                      } catch (e) {
+                        if (context.mounted) {
+                           ShadToaster.of(context).show(
+                             ShadToast.destructive(title: const Text('Error'), description: Text(e.toString())),
+                           );
+                        }
+                      }
+                   }
+                },
+                icon: const Icon(Icons.send, size: 16),
+                label: const Text('Notify Team'),
+                style: OutlinedButton.styleFrom(
+                   foregroundColor: Colors.white,
+                   side: const BorderSide(color: Colors.white54),
+                ),
+              ),
+            ),
+          ],
           bottom: const TabBar(
             tabs: [
               Tab(text: 'Plan'),
@@ -344,16 +392,54 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
                   
                   const SizedBox(height: 16),
                   
+                  const SizedBox(height: 16),
+                  
+                  // Suggested Teams
+                  if (_assignments.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Suggested Teams:', style: Theme.of(context).textTheme.bodySmall),
+                          const SizedBox(height: 4),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 4,
+                            children: _assignments.map((a) => a.teamName).toSet().map((t) {
+                               return ActionChip(
+                                 label: Text(t),
+                                 onPressed: () {
+                                    setStateDialog(() {
+                                      teamName = t;
+                                    });
+                                 },
+                                 backgroundColor: teamName == t ? Colors.blue.shade100 : null,
+                               );
+                            }).toList(),
+                          ),
+                        ],
+                      ),
+                    ),
+
                   // Team Selection with Autocomplete
                   Autocomplete<String>(
                     optionsBuilder: (text) {
                       if (text.text.isEmpty) return kTeams;
                       return kTeams.where((t) => t.toLowerCase().contains(text.text.toLowerCase()));
                     },
-                    onSelected: (val) => teamName = val,
+                    onSelected: (val) => setStateDialog(() => teamName = val),
                     fieldViewBuilder: (context, controller, focus, onSubmitted) {
-                      if (controller.text.isEmpty) controller.text = teamName;
-                      controller.addListener(() { teamName = controller.text; });
+                      // Sync controller with state if changed via chip
+                      if (controller.text != teamName) {
+                         controller.text = teamName;
+                         // Move cursor to end
+                         controller.selection = TextSelection.fromPosition(TextPosition(offset: controller.text.length));
+                      }
+                      
+                      controller.addListener(() { 
+                        teamName = controller.text; 
+                      });
                       return TextField(
                         controller: controller,
                         focusNode: focus,

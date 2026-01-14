@@ -42,6 +42,7 @@ dependencies:
     path: ../../packages/ui_kit
   core:
     path: ../../packages/core
+  timeago: ^3.6.1
   intl: ^0.18.1
   image_picker: ^1.1.2
 

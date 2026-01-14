@@ -6,6 +6,7 @@ class ShadcnAppTheme {
     return ShadThemeData(
       brightness: Brightness.light,
       colorScheme: const ShadZincColorScheme.light(),
+      textTheme: ShadTextTheme(family: 'SF Pro Display'),
     );
   }
 
@@ -13,6 +14,7 @@ class ShadcnAppTheme {
     return ShadThemeData(
       brightness: Brightness.dark,
       colorScheme: const ShadZincColorScheme.dark(),
+      textTheme: ShadTextTheme(family: 'SF Pro Display'),
     );
   }
 }
