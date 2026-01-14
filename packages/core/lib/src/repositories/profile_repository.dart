@@ -34,4 +34,11 @@ class ProfileRepository {
     );
     return _client.storage.from('avatars').getPublicUrl(fileName);
   }
+  Future<List<UserProfile>> getPendingSongContributors() async {
+    final response = await _client
+        .from('profiles')
+        .select()
+        .eq('song_contributor_status', 'pending');
+    return (response as List).map((e) => UserProfile.fromJson(e)).toList();
+  }
 }

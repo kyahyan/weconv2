@@ -43,4 +43,7 @@ class SongRepository {
       'order': order,
     });
   }
+  Future<void> createSong(Song song) async {
+    await _client.from('songs').insert(song.toJson());
+  }
 }

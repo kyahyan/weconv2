@@ -313,6 +313,8 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
     String? selectedMemberId;
     String roleName = '';
     String teamName = 'General';
+    bool isWorshipLeader = false;
+
     
     // Roles suggestions
     final kRoles = ['Worship Leader', 'Backup Singer', 'Guitarist', 'Drummer', 'Keyboardist', 'Bassist', 'Usher', 'Multimedia', 'Sound Engineer', 'Camera Operator'];
@@ -340,28 +342,80 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
                   ),
                   const SizedBox(height: 16),
                   
-                  // Team Selection
-                  DropdownButtonFormField<String>(
-                    value: teamName,
-                    decoration: const InputDecoration(labelText: 'Team', border: OutlineInputBorder()),
-                    items: kTeams.map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
-                    onChanged: (val) {
-                      if (val != null) setStateDialog(() => teamName = val);
+                  const SizedBox(height: 16),
+                  
+                  // Team Selection with Autocomplete
+                  Autocomplete<String>(
+                    optionsBuilder: (text) {
+                      if (text.text.isEmpty) return kTeams;
+                      return kTeams.where((t) => t.toLowerCase().contains(text.text.toLowerCase()));
+                    },
+                    onSelected: (val) => teamName = val,
+                    fieldViewBuilder: (context, controller, focus, onSubmitted) {
+                      if (controller.text.isEmpty) controller.text = teamName;
+                      controller.addListener(() { teamName = controller.text; });
+                      return TextField(
+                        controller: controller,
+                        focusNode: focus,
+                        decoration: const InputDecoration(labelText: 'Team', border: OutlineInputBorder()),
+                      );
                     },
                   ),
                   const SizedBox(height: 16),
 
                   Autocomplete<String>(
                     optionsBuilder: (text) => kRoles.where((r) => r.toLowerCase().contains(text.text.toLowerCase())),
-                    onSelected: (val) => roleName = val,
+                    onSelected: (val) {
+                      if (!isWorshipLeader) roleName = val;
+                    },
                     fieldViewBuilder: (context, controller, focus, onSubmitted) {
-                      controller.addListener(() { roleName = controller.text; });
+                      // If it's worship leader, force the text
+                      if (isWorshipLeader && controller.text != 'Worship Leader') {
+                        controller.text = 'Worship Leader';
+                        roleName = 'Worship Leader';
+                      }
+                      
+                      controller.addListener(() { 
+                        if (!isWorshipLeader) {
+                          roleName = controller.text; 
+                        }
+                      });
+                      
                       return TextField(
                         controller: controller,
                         focusNode: focus,
-                        decoration: const InputDecoration(labelText: 'Role', border: OutlineInputBorder()),
+                        readOnly: isWorshipLeader, // Disable input if worship leader
+                        decoration: InputDecoration(
+                          labelText: 'Role', 
+                          border: const OutlineInputBorder(),
+                          filled: isWorshipLeader,
+                          fillColor: isWorshipLeader ? Colors.grey.shade200 : null,
+                        ),
                       );
                     },
+                  ),
+
+                  // Worship Leader Checkbox
+                  StatefulBuilder(
+                    builder: (context, setStateCheckbox) {
+                      return CheckboxListTile(
+                        title: const Text("Is this the Worship Leader?"),
+                        value: isWorshipLeader,
+                        onChanged: (val) {
+                          setStateCheckbox(() {
+                             isWorshipLeader = val ?? false;
+                             if (isWorshipLeader) {
+                               teamName = 'Praise & Worship'; 
+                               roleName = 'Worship Leader';
+                             } else {
+                               // Optional: Clear role if unchecked? kept for now.
+                             }
+                          });
+                          // Force UI update for the text field above
+                          setStateDialog(() {}); 
+                        },
+                      );
+                    }
                   ),
                 ],
               ),
@@ -370,7 +424,12 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
               TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
               ElevatedButton(
                 onPressed: () async {
-                   if (selectedMemberId == null || roleName.isEmpty) return;
+                   if (selectedMemberId == null || roleName.isEmpty) {
+                     ScaffoldMessenger.of(context).showSnackBar(
+                       const SnackBar(content: Text('Please select a member and enter a role.')),
+                     );
+                     return;
+                   }
                    try {
                      await _serviceRepo.createServiceAssignment(ServiceAssignment(
                        id: '',
@@ -379,12 +438,37 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
                        roleName: roleName,
                        teamName: teamName,
                      ));
+
+                     if (isWorshipLeader) {
+                       // Find the actual user_id (profile id) for the selected member
+                       final memberObj = _members.firstWhere(
+                         (m) => m['id'] == selectedMemberId, 
+                         orElse: () => {}
+                       );
+                       final userId = memberObj['user_id'] as String?;
+
+                       if (userId != null) {
+                         final updatedService = Service(
+                           id: widget.service.id, 
+                           date: widget.service.date, 
+                           title: widget.service.title,
+                           worshipLeaderId: userId, // Use user_id, not membership id
+                           endTime: widget.service.endTime,
+                           organizationId: widget.service.organizationId,
+                           branchId: widget.service.branchId
+                         );
+                         await _serviceRepo.updateService(updatedService);
+                       }
+                     }
+
                      if (mounted) {
                        Navigator.pop(context);
                        _fetchAssignments();
                      }
                    } catch(e) {
-                      ShadToaster.of(context).show(ShadToast.destructive(title: const Text("Error"), description: Text(e.toString())));
+                      if (mounted) {
+                        ShadToaster.of(context).show(ShadToast.destructive(title: const Text("Error"), description: Text(e.toString())));
+                      }
                    }
                 },
                 child: const Text('Add'),

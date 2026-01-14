@@ -13,6 +13,8 @@ class UserProfile {
   final String? address;
   @JsonKey(name: 'contact_number')
   final String? contactNumber;
+  @JsonKey(name: 'song_contributor_status')
+  final String? songContributorStatus; // 'none' (null), 'pending', 'approved', 'rejected'
 
   UserProfile({
     required this.id,
@@ -21,6 +23,7 @@ class UserProfile {
     this.fullName,
     this.address,
     this.contactNumber,
+    this.songContributorStatus,
   });
 
   factory UserProfile.fromJson(Map<String, dynamic> json) =>

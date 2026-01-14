@@ -51,6 +51,17 @@ class ServiceRepository {
     return Service.fromJson(response);
   }
 
+  Future<void> updateService(Service service) async {
+    await _client.from('services').update({
+      'date': service.date.toUtc().toIso8601String(),
+      'title': service.title,
+      'worship_leader_id': service.worshipLeaderId,
+      'end_time': service.endTime?.toUtc().toIso8601String(),
+      'organization_id': service.organizationId,
+      'branch_id': service.branchId,
+    }).eq('id', service.id);
+  }
+
   Future<void> deleteService(String id) async {
     await _client.from('services').delete().eq('id', id);
   }

@@ -7,6 +7,7 @@ class ProfileForm extends StatefulWidget {
   final Future<void> Function(String fullName, String? address, String? contactNumber) onSave;
   final VoidCallback? onSignOut;
   final VoidCallback? onUploadImage;
+  final VoidCallback? onRequestSongContributor;
 
   const ProfileForm({
     super.key,
@@ -15,6 +16,7 @@ class ProfileForm extends StatefulWidget {
     this.isLoading = false,
     this.onSignOut,
     this.onUploadImage,
+    this.onRequestSongContributor,
   });
 
   @override
@@ -135,6 +137,50 @@ class _ProfileFormState extends State<ProfileForm> {
               child: const Text('Sign Out'),
             ),
           ],
+          
+          const SizedBox(height: 32),
+          const Divider(),
+          const SizedBox(height: 16),
+          Text('Contributor Settings', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 8),
+          
+          if (widget.profile.songContributorStatus == 'approved')
+            ListTile(
+               contentPadding: EdgeInsets.zero,
+               leading: const Icon(Icons.check_circle, color: Colors.green),
+               title: const Text('Song Contributor'),
+               subtitle: const Text('You can create and manage songs.'),
+            )
+          else if (widget.profile.songContributorStatus == 'pending')
+             ListTile(
+               contentPadding: EdgeInsets.zero,
+               leading: const Icon(Icons.access_time, color: Colors.orange),
+               title: const Text('Request Pending'),
+               subtitle: const Text('Your request to be a song contributor is waiting for approval.'),
+            )
+          else if (widget.profile.songContributorStatus == 'rejected')
+             ListTile(
+               contentPadding: EdgeInsets.zero,
+               leading: const Icon(Icons.cancel, color: Colors.red),
+               title: const Text('Request Rejected'),
+               subtitle: const Text('Your request was rejected. Contact admin for details.'),
+               trailing: TextButton(
+                 onPressed: widget.onRequestSongContributor,
+                 child: const Text('Re-apply'),
+               ),
+            )
+          else
+            ListTile(
+               contentPadding: EdgeInsets.zero,
+               leading: const Icon(Icons.music_note),
+               title: const Text('Become a Song Contributor'),
+               subtitle: const Text('Contribute lyrics and chords to the worship library.'),
+               trailing: ElevatedButton(
+                 onPressed: widget.onRequestSongContributor,
+                 style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurple.shade50, foregroundColor: Colors.deepPurple),
+                 child: const Text('Request'),
+               ),
+            ),
         ],
       ),
     );

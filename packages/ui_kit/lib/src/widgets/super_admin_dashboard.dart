@@ -13,8 +13,10 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> with SingleTi
   late TabController _tabController;
   final _orgRepo = OrganizationRepository();
   final _adminRepo = AdminRepository();
+  final _profileRepo = ProfileRepository();
   
   List<Organization> _pendingOrgs = [];
+  List<UserProfile> _pendingContributors = [];
   List<Organization> _allOrgs = [];
   List<Map<String, dynamic>> _allUsers = [];
   
@@ -23,7 +25,7 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> with SingleTi
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _fetchAllData();
   }
 
@@ -31,12 +33,14 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> with SingleTi
     setState(() => _isLoading = true);
     try {
       final pendingRaw = await _orgRepo.getPendingOrganizations();
+      final pendingContributorsRaw = await _profileRepo.getPendingSongContributors();
       final allOrgsRaw = await _adminRepo.getAllOrganizations();
       final allUsersRaw = await _adminRepo.getAllProfiles(); // Note: Profiles table needs to be populated correctly
 
       if (mounted) {
         setState(() {
           _pendingOrgs = pendingRaw;
+          _pendingContributors = pendingContributorsRaw;
           _allOrgs = allOrgsRaw;
           _allUsers = allUsersRaw;
           _isLoading = false;
@@ -70,6 +74,34 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> with SingleTi
         }
       }
       _fetchAllData(); 
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _updateContributorStatus(UserProfile user, String status) async {
+    try {
+      final updatedProfile = UserProfile(
+        id: user.id,
+        username: user.username,
+        avatarUrl: user.avatarUrl,
+        fullName: user.fullName,
+        address: user.address,
+        contactNumber: user.contactNumber,
+        songContributorStatus: status,
+      );
+      await _profileRepo.updateProfile(updatedProfile);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Request $status')),
+        );
+      }
+      _fetchAllData();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -129,7 +161,8 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> with SingleTi
         bottom: TabBar(
           controller: _tabController,
           tabs: const [
-            Tab(icon: Icon(Icons.pending), text: 'Pending'),
+            Tab(icon: Icon(Icons.pending), text: 'Orgs Pending'),
+            Tab(icon: Icon(Icons.music_note), text: 'Song Requests'),
             Tab(icon: Icon(Icons.business), text: 'Organizations'),
             Tab(icon: Icon(Icons.people), text: 'Users'),
           ],
@@ -140,13 +173,16 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> with SingleTi
           : TabBarView(
               controller: _tabController,
               children: [
-                // Tab 1: Pending Approvals
+                // Tab 1: Pending Orgs
                 _buildPendingList(),
                 
-                // Tab 2: All Organizations
+                // Tab 2: Pending Song Contributors
+                _buildContributorList(),
+
+                // Tab 3: All Organizations
                 _buildAllOrgsList(),
                 
-                // Tab 3: All Users
+                // Tab 4: All Users
                 _buildAllUsersList(),
               ],
             ),
@@ -284,6 +320,49 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> with SingleTi
                   onPressed: () => _deleteUser(user['id'], username),
                   tooltip: 'Delete User',
                 ),
+        );
+      },
+    );
+  }
+  Widget _buildCoordinatorList() {
+      // ... placeholder if needed
+      return Container();
+  }
+
+  Widget _buildContributorList() {
+    if (_pendingContributors.isEmpty) {
+      return const Center(child: Text('No pending song contributor requests.'));
+    }
+    return ListView.builder(
+      itemCount: _pendingContributors.length,
+      itemBuilder: (context, index) {
+        final user = _pendingContributors[index];
+        return Card(
+          margin: const EdgeInsets.all(8),
+          child: ListTile(
+            leading: CircleAvatar(
+               backgroundImage: user.avatarUrl != null ? NetworkImage(user.avatarUrl!) : null,
+               child: user.avatarUrl == null ? Text((user.fullName ?? user.username ?? '?')[0].toUpperCase()) : null,
+            ),
+            title: Text(user.fullName ?? user.username ?? 'Unknown'),
+            subtitle: Text('ID: ${user.id}\nEmail: ${user.username}'),
+            isThreeLine: true,
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.check, color: Colors.green),
+                  onPressed: () => _updateContributorStatus(user, 'approved'),
+                  tooltip: 'Approve',
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, color: Colors.red),
+                  onPressed: () => _updateContributorStatus(user, 'rejected'),
+                  tooltip: 'Reject',
+                ),
+              ],
+            ),
+          ),
         );
       },
     );

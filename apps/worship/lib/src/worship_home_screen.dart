@@ -3,6 +3,12 @@ import 'package:core/core.dart';
 import 'package:models/models.dart';
 import 'package:ui_kit/ui_kit.dart';
 import 'musician_dashboard.dart';
+import 'branch_details_screen.dart';
+
+
+import 'create_song_screen.dart';
+
+import 'song_detail_screen.dart';
 
 class WorshipHomeScreen extends StatefulWidget {
   const WorshipHomeScreen({super.key});
@@ -12,22 +18,54 @@ class WorshipHomeScreen extends StatefulWidget {
 }
 
 class _WorshipHomeScreenState extends State<WorshipHomeScreen> {
-  int _currentIndex = 1; // Default to 'Songs' as per user interest context usually, or 'Feed'? 0 = Feed, 1 = Songs
-  // User asked for "Feed, Songs, Church". Let's default to 0 (Feed) or 1 (Songs)?
-  // "for the Home Page, can we have a Tab for Feed, Songs, Church"
-  // Let's default to 1 (Songs) since it was "Worship Setlists" app before.
-  
+  // ... existing state ...
+  int _currentIndex = 1; 
   final _orgRepo = OrganizationRepository();
   final _authService = AuthService();
+  final _profileRepo = ProfileRepository();
+  final _songRepo = SongRepository();
   
   List<Organization> _userOrgs = [];
   Organization? _selectedOrg;
+  UserProfile? _profile;
+  List<Song> _songs = [];
   bool _isLoadingOrg = true;
+  bool _isLoadingSongs = true;
 
   @override
   void initState() {
     super.initState();
     _fetchOrgs();
+    _fetchProfile();
+    _fetchSongs();
+  }
+  
+  // ... other methods ...
+
+  Future<void> _fetchSongs() async {
+    try {
+      final songs = await _songRepo.searchSongs('');
+      if (mounted) {
+        setState(() {
+          _songs = songs;
+          _isLoadingSongs = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isLoadingSongs = false);
+    }
+  }
+
+  Future<void> _fetchProfile() async {
+    final user = _authService.currentUser;
+    if (user != null) {
+      final profile = await _profileRepo.getProfile(user.id);
+      if (mounted) {
+        setState(() {
+          _profile = profile;
+        });
+      }
+    }
   }
 
   Future<void> _fetchOrgs() async {
@@ -48,18 +86,11 @@ class _WorshipHomeScreenState extends State<WorshipHomeScreen> {
   }
 
   Future<void> _showCreateSongDialog() async {
-    // Placeholder for "Contributor" feature
-    // "can we have a contributor for the user can create song."
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Create Song'),
-        content: const Text('Song creation interface coming soon!'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close')),
-        ],
-      ),
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const CreateSongScreen()),
     );
+    _fetchSongs();
   }
 
   @override
@@ -67,14 +98,25 @@ class _WorshipHomeScreenState extends State<WorshipHomeScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Worship'),
-        centerTitle: false, // Modern look? Or center? Default is fine.
+        centerTitle: false,
         actions: [
           // Contributor / Create Song Action
-           IconButton(
-            icon: const Icon(Icons.add_circle_outline),
-            tooltip: 'Create Song',
-            onPressed: _showCreateSongDialog,
-          ),
+           if (_profile?.songContributorStatus == 'approved')
+             IconButton(
+              icon: const Icon(Icons.add_circle_outline),
+              tooltip: 'Create Song',
+              onPressed: _showCreateSongDialog,
+            )
+           else if (_profile != null && _profile!.songContributorStatus != 'approved')
+              IconButton(
+                icon: const Icon(Icons.lock_outline, color: Colors.grey),
+                tooltip: 'Restricted Access',
+                onPressed: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Song creation is restricted to approved contributors.')),
+                  );
+                },
+              ),
           
           // Avatar / Profile
           IconButton(
@@ -121,39 +163,54 @@ class _WorshipHomeScreenState extends State<WorshipHomeScreen> {
   }
 
   Widget _buildSongsTab() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(Icons.library_music, size: 64, color: Colors.grey),
-          const SizedBox(height: 16),
-          const Text('Worship Songs Library', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          ElevatedButton.icon(
-            onPressed: _showCreateSongDialog,
-            icon: const Icon(Icons.add),
-            label: const Text('Add New Song'),
+    if (_isLoadingSongs) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    
+    if (_songs.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.library_music, size: 64, color: Colors.grey),
+            const SizedBox(height: 16),
+            const Text('No songs found.'),
+            if (_profile?.songContributorStatus == 'approved')
+              Padding(
+                padding: const EdgeInsets.only(top: 16.0),
+                child: ElevatedButton.icon(
+                  onPressed: _showCreateSongDialog,
+                  icon: const Icon(Icons.add),
+                  label: const Text('Add First Song'),
+                ),
+              ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(8),
+      itemCount: _songs.length,
+      itemBuilder: (context, index) {
+        final song = _songs[index];
+        return Card(
+          child: ListTile(
+            leading: CircleAvatar(
+              child: Text(song.key.isNotEmpty ? song.key.substring(0, 1) : '?'),
+            ),
+            title: Text(song.title),
+            subtitle: Text(song.artist),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+               Navigator.push(
+                 context,
+                 MaterialPageRoute(builder: (_) => SongDetailScreen(song: song)),
+               );
+            },
           ),
-          const SizedBox(height: 24),
-          // Old "Musician Dashboard" link? 
-          // "There's a restricted area for musician only."
-          // Maybe put a button here too if they are authorized?
-          // Or keep it hidden until we integrate it better.
-          // Accessing restricted area was in ServiceListScreen app bar actions.
-          // Let's add a button here for now if they want to access "Musician Area"
-          OutlinedButton(
-             onPressed: () {
-               // Check role logic or just let them try and see?
-               // Re-implement role check logic here?
-               // For speed, let's just go there and MusicianDashboard can potentially implement a check 
-               // OR we trust the "hidden" nature.
-               // Let's check role quickly.
-               _checkMusicianAccess();
-             }, 
-             child: const Text('Restricted: Musician Area'),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -291,21 +348,8 @@ class _WorshipHomeScreenState extends State<WorshipHomeScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Organization Details', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  const Divider(),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.info_outline, color: Colors.grey),
-                    title: const Text('Status'),
-                    subtitle: Text(displayOrg.status.toUpperCase(), style: const TextStyle(fontWeight: FontWeight.w600)),
-                  ),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.verified_user_outlined, color: Colors.grey),
-                    title: const Text('Owner ID'),
-                    subtitle: Text(displayOrg.ownerId, style: const TextStyle(fontSize: 12, overflow: TextOverflow.ellipsis)),
-                  ),
-                  const SizedBox(height: 16),
+                  // Organization Details removed as per request
+
                   
                   const Text('My Branches', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   const Divider(),
@@ -328,12 +372,36 @@ class _WorshipHomeScreenState extends State<WorshipHomeScreen> {
                       }
 
                       return Wrap(
-                        spacing: 8.0,
-                        children: branches.map((branch) => ActionChip(
-                          avatar: const Icon(Icons.place, size: 16),
-                          label: Text(branch.name),
-                          backgroundColor: Colors.deepPurple.shade50,
-                          onPressed: () => _showBranchDetails(branch, displayOrg),
+                        spacing: 20.0,
+                        runSpacing: 16.0,
+                        children: branches.map((branch) => InkWell(
+                          borderRadius: BorderRadius.circular(50),
+                          onTap: () => _showBranchDetails(branch, displayOrg),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (branch.avatarUrl != null)
+                                CircleAvatar(
+                                  radius: 28,
+                                  backgroundImage: NetworkImage(branch.avatarUrl!),
+                                )
+                              else
+                                CircleAvatar(
+                                  radius: 28,
+                                  backgroundColor: Colors.deepPurple.shade100,
+                                  child: Text(
+                                    branch.name.substring(0, 1).toUpperCase(),
+                                    style: const TextStyle(fontSize: 20, color: Colors.deepPurple, fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                              const SizedBox(height: 8),
+                              Text(
+                                branch.name,
+                                style: const TextStyle(fontSize: 12),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
                         )).toList(),
                       );
                     },
@@ -347,100 +415,28 @@ class _WorshipHomeScreenState extends State<WorshipHomeScreen> {
     );
   }
 
-  // ... _fetchMyBranches ...
+  Future<List<Branch>> _fetchMyBranches(String orgId) async {
+    try {
+      final joinedIds = await _orgRepo.getJoinedBranchIds(orgId);
+      if (joinedIds.isEmpty) return [];
+      
+      final allBranches = await _orgRepo.getBranches(orgId);
+      return allBranches.where((b) => joinedIds.contains(b.id)).toList();
+    } catch (e) {
+      debugPrint('Error fetching my branches: $e');
+      return [];
+    }
+  }
 
   void _showBranchDetails(Branch branch, Organization org) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        contentPadding: const EdgeInsets.all(24),
-        title: Column(
-          children: [
-            if (branch.avatarUrl != null)
-              CircleAvatar(
-                radius: 40,
-                backgroundImage: NetworkImage(branch.avatarUrl!),
-              )
-            else
-              CircleAvatar(
-                radius: 30,
-                backgroundColor: Colors.deepPurple.shade100,
-                child: Text(branch.name.substring(0, 1).toUpperCase()),
-              ),
-            const SizedBox(height: 12),
-            Text(branch.name, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold)),
-            if (branch.acronym != null && branch.acronym!.isNotEmpty)
-              Text('(${branch.acronym})', style: const TextStyle(fontSize: 14, color: Colors.grey)),
-          ],
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => BranchDetailsScreen(
+          branch: branch,
+          organization: org,
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Divider(),
-            _buildDetailRow(Icons.business, 'Parent Org', org.name),
-            if (branch.contactMobile != null && branch.contactMobile!.isNotEmpty)
-              _buildDetailRow(Icons.smartphone, 'Mobile', branch.contactMobile!),
-            if (branch.contactLandline != null && branch.contactLandline!.isNotEmpty)
-              _buildDetailRow(Icons.phone, 'Landline', branch.contactLandline!),
-            if (branch.address != null && branch.address!.isNotEmpty)
-               _buildDetailRow(Icons.location_on, 'Address', branch.address!),
-            if (branch.socialMediaLinks != null && branch.socialMediaLinks!.isNotEmpty)
-              _buildSocialLinks(branch.socialMediaLinks!),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-        ],
       ),
     );
-  }
-  
-  Widget _buildDetailRow(IconData icon, String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6.0),
-      child: Row(
-         crossAxisAlignment: CrossAxisAlignment.start,
-         children: [
-           Icon(icon, size: 18, color: Colors.deepPurple),
-           const SizedBox(width: 12),
-           Expanded(
-             child: Column(
-               crossAxisAlignment: CrossAxisAlignment.start,
-               children: [
-                 Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey)),
-                 Text(value, style: const TextStyle(fontSize: 14)),
-               ],
-             ),
-           ),
-         ],
-      ),
-    );
-  }
-
-  Widget _buildSocialLinks(Map<String, dynamic> links) {
-     return Padding(
-       padding: const EdgeInsets.only(top: 12.0),
-       child: Column(
-         crossAxisAlignment: CrossAxisAlignment.start,
-         children: [
-           const Text('Social Media', style: TextStyle(fontSize: 10, color: Colors.grey)),
-           const SizedBox(height: 4),
-           Wrap(
-             spacing: 8,
-             children: links.entries.map((e) {
-               return Chip(
-                 label: Text('${e.key}: ${e.value}'),
-                 labelStyle: const TextStyle(fontSize: 10),
-                 backgroundColor: Colors.blue.withOpacity(0.1),
-               );
-             }).toList(),
-           ),
-         ],
-       ),
-     );
   }
 }

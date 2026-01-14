@@ -53,6 +53,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         fullName: fullName,
         address: address,
         contactNumber: contactNumber,
+        songContributorStatus: _profile!.songContributorStatus,
       );
       await _profileRepository.updateProfile(updatedProfile);
       if (mounted) {
@@ -146,7 +147,43 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       }
                   },
                   onUploadImage: _pickAndUploadImage,
+                  onRequestSongContributor: _requestSongContributor,
                 ),
     );
+  }
+
+  Future<void> _requestSongContributor() async {
+    if (_profile == null) return;
+    setState(() => _isLoading = true);
+    try {
+      final updatedProfile = UserProfile(
+        id: _profile!.id,
+        username: _profile!.username,
+        fullName: _profile!.fullName,
+        address: _profile!.address,
+        contactNumber: _profile!.contactNumber,
+        avatarUrl: _profile!.avatarUrl,
+        songContributorStatus: 'pending',
+      );
+      
+      await _profileRepository.updateProfile(updatedProfile);
+
+      if (mounted) {
+         setState(() {
+           _profile = updatedProfile;
+           _isLoading = false;
+         });
+         ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Request sent successfully!')),
+         );
+      }
+    } catch (e) {
+       if (mounted) {
+          setState(() => _isLoading = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error sending request: $e')),
+          );
+       }
+    }
   }
 }
