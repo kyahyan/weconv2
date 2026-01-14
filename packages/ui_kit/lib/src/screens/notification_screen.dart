@@ -6,7 +6,9 @@ import 'package:ui_kit/src/utils/notification_sound_player.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
 class NotificationScreen extends StatefulWidget {
-  const NotificationScreen({super.key});
+  final Function(BuildContext context, UserNotification notification)? onNotificationTap;
+
+  const NotificationScreen({super.key, this.onNotificationTap});
 
   @override
   State<NotificationScreen> createState() => _NotificationScreenState();
@@ -98,40 +100,64 @@ class _NotificationScreenState extends State<NotificationScreen> {
                       // Highlight unread
                       final isUnread = !notification.isRead;
                       
-                      return Container(
-                         color: isUnread ? Colors.blue.withOpacity(0.05) : null,
-                         child: ListTile(
-                          leading: CircleAvatar(
-                            backgroundColor: isUnread ? Colors.blue : Colors.grey.shade300,
-                            child: Icon(
-                              _getIconForType(notification.type),
-                              color: Colors.white,
-                              size: 20,
-                            ),
-                          ),
-                          title: Text(
-                            notification.title,
-                            style: TextStyle(
-                              fontWeight: isUnread ? FontWeight.bold : FontWeight.normal,
-                            ),
-                          ),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const SizedBox(height: 4),
-                              Text(notification.body),
-                              const SizedBox(height: 4),
-                              Text(
-                                timeago.format(notification.createdAt),
-                                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                      return Dismissible(
+                        key: Key(notification.id),
+                        direction: DismissDirection.endToStart,
+                        background: Container(
+                          color: Colors.red,
+                          alignment: Alignment.centerRight,
+                          padding: const EdgeInsets.only(right: 20),
+                          child: const Icon(Icons.delete, color: Colors.white),
+                        ),
+                        onDismissed: (direction) {
+                          // Optimistic update
+                          setState(() {
+                            _notifications.removeAt(index);
+                          });
+                          _notificationRepo.deleteNotification(notification.id).catchError((e) {
+                             if (mounted) {
+                               ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to delete: $e')));
+                               // Should re-fetch or revert if critical, but for notifications just error msg is fine.
+                               _fetchNotifications(); 
+                             }
+                          });
+                        },
+                        child: Container(
+                           color: isUnread ? Colors.blue.withOpacity(0.05) : null,
+                           child: ListTile(
+                            leading: CircleAvatar(
+                              backgroundColor: isUnread ? Colors.blue : Colors.grey.shade300,
+                              child: Icon(
+                                _getIconForType(notification.type),
+                                color: Colors.white,
+                                size: 20,
                               ),
-                            ],
+                            ),
+                            title: Text(
+                              notification.title,
+                              style: TextStyle(
+                                fontWeight: isUnread ? FontWeight.bold : FontWeight.normal,
+                              ),
+                            ),
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const SizedBox(height: 4),
+                                Text(notification.body),
+                                const SizedBox(height: 4),
+                                Text(
+                                  timeago.format(notification.createdAt),
+                                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                                ),
+                              ],
+                            ),
+                            onTap: () {
+                              _markRead(notification.id); // Always mark read on tap
+                              if (widget.onNotificationTap != null) {
+                                widget.onNotificationTap!(context, notification);
+                              }
+                            },
                           ),
-                          onTap: () {
-                            if (isUnread) _markRead(notification.id);
-                            // Handle navigation if relatedId is present?
-                            // For now, just mark read.
-                          },
                         ),
                       );
                     },
@@ -153,7 +179,9 @@ class _NotificationScreenState extends State<NotificationScreen> {
 }
 
 class NotificationBell extends StatefulWidget {
-  const NotificationBell({super.key});
+  final Function(BuildContext context, UserNotification notification)? onNotificationTap;
+
+  const NotificationBell({super.key, this.onNotificationTap});
 
   @override
   State<NotificationBell> createState() => _NotificationBellState();
@@ -202,7 +230,7 @@ class _NotificationBellState extends State<NotificationBell> {
                               onPressed: () {
                                  Navigator.push(
                                   context,
-                                  MaterialPageRoute(builder: (context) => const NotificationScreen()),
+                                  MaterialPageRoute(builder: (context) => NotificationScreen(onNotificationTap: widget.onNotificationTap)),
                                 );
                               },
                             ),
@@ -225,7 +253,7 @@ class _NotificationBellState extends State<NotificationBell> {
               onPressed: () {
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (context) => const NotificationScreen()),
+                  MaterialPageRoute(builder: (context) => NotificationScreen(onNotificationTap: widget.onNotificationTap)),
                 );
               },
             ),

@@ -46,4 +46,15 @@ class SongRepository {
   Future<void> createSong(Song song) async {
     await _client.from('songs').insert(song.toJson());
   }
+
+  Future<Song?> getSongById(String id) async {
+    final response = await _client
+        .from('songs')
+        .select()
+        .eq('id', id)
+        .maybeSingle();
+
+    if (response == null) return null;
+    return Song.fromJson(response);
+  }
 }

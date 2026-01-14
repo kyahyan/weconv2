@@ -16,7 +16,7 @@ class NotificationSoundPlayer {
       // Valid pattern: AssetSource('packages/ui_kit/sounds/notification.wav') assuming it is under assets/
       
       // Update: we'll try the standard package asset path.
-      await _player.play(AssetSource('packages/ui_kit/sounds/notification.wav'));
+      await _player.play(AssetSource('packages/ui_kit/assets/sounds/notification.wav'));
     } catch (e) {
       // Ignore errors if sound fails (e.g. platform not supported or file missing)
       print('Error playing notification sound: $e');

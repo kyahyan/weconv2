@@ -2,12 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:models/models.dart';
 import 'package:core/core.dart';
+import 'song_detail_screen.dart'; // Added import
 
 
 class ServiceDetailsScreen extends StatefulWidget {
-  final Service service;
+  final Service? service;
+  final String? serviceId;
 
-  const ServiceDetailsScreen({super.key, required this.service});
+  const ServiceDetailsScreen({
+    super.key, 
+    this.service, 
+    this.serviceId
+  }) : assert(service != null || serviceId != null, 'Either service or serviceId must be provided');
 
   @override
   State<ServiceDetailsScreen> createState() => _ServiceDetailsScreenState();
@@ -16,7 +22,9 @@ class ServiceDetailsScreen extends StatefulWidget {
 class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
   final _serviceRepo = ServiceRepository();
   final _orgRepo = OrganizationRepository();
+  final _songRepo = SongRepository();
   
+  Service? _service;
   List<ServiceItem> _programItems = [];
   List<ServiceAssignment> _assignments = [];
   List<Map<String, dynamic>> _members = [];
@@ -25,15 +33,32 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
   @override
   void initState() {
     super.initState();
+    _service = widget.service;
     _fetchDetails();
   }
 
   Future<void> _fetchDetails() async {
+    print("DEBUG: _fetchDetails started");
     try {
+      // 1. Fetch Service if needed
+      if (_service == null && widget.serviceId != null) {
+         print("DEBUG: Fetching service object by ID: ${widget.serviceId}");
+         _service = await _serviceRepo.getServiceById(widget.serviceId!);
+         if (_service == null) {
+           print("DEBUG: Service not found for ID: ${widget.serviceId}");
+           if (mounted) setState(() => _isLoading = false);
+           return; 
+         }
+      }
+
+      final serviceId = _service!.id;
+
+      print("DEBUG: _fetchDetails waiting for service items/assignments for $serviceId");
       final results = await Future.wait([
-        _serviceRepo.getServiceItems(widget.service.id),
-        _serviceRepo.getServiceAssignments(widget.service.id),
+        _serviceRepo.getServiceItems(serviceId),
+        _serviceRepo.getServiceAssignments(serviceId),
       ]);
+      print("DEBUG: _fetchDetails items/assignments fetched");
 
       if (mounted) {
         setState(() {
@@ -41,17 +66,27 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
           _assignments = results[1] as List<ServiceAssignment>;
         });
         
-        // Fetch members if we have the branch ID (which is in Service object)
-        if (widget.service.branchId != null) {
-          _fetchMembers(widget.service.branchId!);
+        // Fetch members if variable
+        if (_service!.branchId != null) {
+          print("DEBUG: _fetchDetails calling _fetchMembers");
+          await _fetchMembers(_service!.branchId!);
+          print("DEBUG: _fetchDetails _fetchMembers completed");
         } else {
-           setState(() => _isLoading = false);
+           print("DEBUG: _fetchDetails no branchId");
         }
+      } else {
+        print("DEBUG: _fetchDetails not mounted after fetch");
       }
-    } catch (e) {
+    } catch (e, stack) {
       debugPrint('Error fetching service details: $e');
+      debugPrint(stack.toString());
+    } finally {
+      print("DEBUG: _fetchDetails finally block entered. Mounted: $mounted");
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() {
+          print("DEBUG: Setting _isLoading = false");
+          _isLoading = false;
+        });
       }
     }
   }
@@ -62,27 +97,47 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
       if (mounted) {
         setState(() {
           _members = members;
-          _isLoading = false;
         });
       }
     } catch (e) {
       debugPrint('Error fetching members: $e');
-      if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  void _openSong(ServiceItem item) {
+    if (item.songId == null) return;
+    
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => SongDetailScreen(songId: item.songId)),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+    
+    if (_service == null) {
+       return Scaffold(
+        appBar: AppBar(title: const Text("Error")),
+        body: const Center(child: Text("Service not found.")),
+       );
+    }
+
     return DefaultTabController(
-      length: 2,
+      length: 3,
       child: Scaffold(
         appBar: AppBar(
           title: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(widget.service.title, style: const TextStyle(fontSize: 18)),
+              Text(_service!.title, style: const TextStyle(fontSize: 18)),
               Text(
-                DateFormat('MMM dd, yyyy - h:mm a').format(widget.service.date),
+                DateFormat('MMM dd, yyyy - h:mm a').format(_service!.date),
                 style: const TextStyle(fontSize: 12),
               ),
             ],
@@ -91,32 +146,59 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
             tabs: [
               Tab(text: 'Program'),
               Tab(text: 'Roster'),
+              Tab(text: 'Line Up'), 
             ],
           ),
         ),
-        body: _isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : TabBarView(
-                children: [
-                  _buildProgramTab(),
-                  _buildRosterTab(),
-                ],
-              ),
+        body: TabBarView(
+            children: [
+              _buildProgramTab(),
+              _buildRosterTab(),
+              _buildLineUpTab(),
+            ],
+          ),
       ),
     );
   }
 
+  Widget _buildLineUpTab() {
+    final songItems = _programItems.where((i) => i.type == 'song').toList();
+    
+    if (songItems.isEmpty) {
+      return const Center(child: Text("No songs in line up."));
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: songItems.length,
+      itemBuilder: (context, index) {
+        final item = songItems[index];
+        return Card(
+           child: ListTile(
+            leading: const Icon(Icons.music_note, color: Colors.deepPurple),
+            title: Text(item.title, style: const TextStyle(fontWeight: FontWeight.bold)),
+            subtitle: const Text('Tap to view lyrics'),
+            trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+            onTap: () => _openSong(item),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildProgramTab() {
-    // ... (unchanged)
-    if (_programItems.isEmpty) {
+    // Filter out songs for the Program tab
+    final displayItems = _programItems.where((i) => i.type != 'song').toList();
+
+    if (displayItems.isEmpty) {
       return const Center(child: Text('No program items found.'));
     }
     return ListView.separated(
       padding: const EdgeInsets.all(16),
-      itemCount: _programItems.length,
+      itemCount: displayItems.length,
       separatorBuilder: (_, __) => const Divider(),
       itemBuilder: (context, index) {
-        final item = _programItems[index];
+        final item = displayItems[index];
         
         // Find assigned member name
         String? assigneeName;

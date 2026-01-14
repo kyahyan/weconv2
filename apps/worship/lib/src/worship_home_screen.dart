@@ -4,7 +4,8 @@ import 'package:models/models.dart';
 import 'package:ui_kit/ui_kit.dart';
 import 'musician_dashboard.dart';
 import 'branch_details_screen.dart';
-
+import 'service_details_screen.dart';
+import 'create_line_up_screen.dart'; // Added
 
 import 'create_song_screen.dart';
 
@@ -24,6 +25,7 @@ class _WorshipHomeScreenState extends State<WorshipHomeScreen> {
   final _authService = AuthService();
   final _profileRepo = ProfileRepository();
   final _songRepo = SongRepository();
+  final _serviceRepo = ServiceRepository(); // Added ServiceRepo
   
   List<Organization> _userOrgs = [];
   Organization? _selectedOrg;
@@ -41,6 +43,34 @@ class _WorshipHomeScreenState extends State<WorshipHomeScreen> {
   }
   
   // ... other methods ...
+
+  Future<void> _handleNotificationTap(BuildContext context, UserNotification notification) async {
+    print("DEBUG: Tapped notification ${notification.id}, type: ${notification.type}, relatedId: ${notification.relatedId}");
+    
+    if (notification.type == 'assignment' && notification.relatedId != null) {
+      // Check if this is a Worship Leader assignment
+      // We check the body for "Worship Leader" as a simple heuristic since backend puts role in body.
+      final isWorshipLeader = notification.body.toLowerCase().contains('worship leader');
+
+      if (isWorshipLeader) {
+         Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => CreateLineUpScreen(serviceId: notification.relatedId!)
+          ),
+        );
+      } else {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ServiceDetailsScreen(serviceId: notification.relatedId)
+          ),
+        );
+      }
+    } else {
+      print("DEBUG: Notification type not handled or relatedId null");
+    }
+  }
 
   Future<void> _fetchSongs() async {
     try {
@@ -119,7 +149,7 @@ class _WorshipHomeScreenState extends State<WorshipHomeScreen> {
               ),
           
           // Notifications
-          const NotificationBell(),
+          NotificationBell(onNotificationTap: _handleNotificationTap),
 
           // Avatar / Profile
           IconButton(

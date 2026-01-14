@@ -17,7 +17,7 @@ class SongDetailScreen extends StatefulWidget {
 }
 
 class _SongDetailScreenState extends State<SongDetailScreen> {
-  final _songRepo = SongRepository(); // Assume we can instantiate or we import core
+  final _songRepo = SongRepository(); 
   Song? _song;
   bool _isLoading = true;
 

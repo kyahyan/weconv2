@@ -27,6 +27,17 @@ class ServiceRepository {
     return (response as List).map((e) => Service.fromJson(e)).toList();
   }
 
+  Future<Service?> getServiceById(String id) async {
+    final response = await _client
+        .from('services')
+        .select()
+        .eq('id', id)
+        .maybeSingle(); // Use maybeSingle to handle not found gracefully
+
+    if (response == null) return null;
+    return Service.fromJson(response);
+  }
+
   Future<Service> createService({
     required DateTime date,
     required String title,
@@ -162,30 +173,26 @@ class ServiceRepository {
 
   Future<void> updateServiceItemsOrder(List<ServiceItem> items) async {
     // Supabase supports upserting a list
-    final updates = items.map((item) => {
-      'id': item.id,
-      'service_id': item.serviceId, // Required for constraint? check RLS/constraints
-      'title': item.title,
-      'order_index': item.orderIndex,
-      // We must provide other non-nullable fields if it's an upsert on Primary Key? 
-      // Actually update on PK only updates provided fields? No, upsert replaces unless specified?
-      // Supabase upsert: "If the row exists, it updates it. If it doesn't, it inserts it."
-      // Ideally we just want to update 'order_index'.
-      // "upsert" might need all required columns.
-      // Better to loop update? Or use a custom RPC?
-      // Loop is safer for now for standard client. 
-    }).toList();
-
-    // Actually, let's just loop for safety and correctness to avoid overwriting data with partials.
-    // Or use .upsert() with ignore duplicates? No.
-    // We can use a single batch upsert if we map ALL fields.
-    // But we might not want to fetch all fields just to update order.
-    // Let's simply loop. It's rarely more than 10-20 items.
+    // However, to ensure reliability for reordering, we will update them one by one
+    // or use a batch upsert if we were sure about all fields.
+    // We will stick to the loop but add error logging.
     
-    // Optimization: Future.wait
-    await Future.wait(items.map((item) => 
-      _client.from('service_items').update({'order_index': item.orderIndex}).eq('id', item.id)
-    ));
+    try {
+      await Future.wait(items.map((item) async {
+        try {
+          await _client
+            .from('service_items')
+            .update({'order_index': item.orderIndex})
+            .eq('id', item.id);
+        } catch (e) {
+          print("Error updating order for item ${item.id}: $e");
+          rethrow;
+        }
+      }));
+    } catch (e) {
+      print("Batch order update failed: $e");
+      rethrow;
+    }
   }
 
   Future<List<ServiceAssignment>> getServiceAssignments(String serviceId) async {
