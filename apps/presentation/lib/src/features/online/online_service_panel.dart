@@ -36,7 +36,19 @@ class OnlinePanel extends ConsumerWidget {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Online', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                      Row(
+                        children: [
+                          const Text('Online', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                          const SizedBox(width: 8),
+                          InkWell(
+                             onTap: () {
+                               ref.refresh(onlineServicesProvider);
+                               ref.refresh(onlineSongsProvider);
+                             },
+                             child: const Icon(Icons.refresh, size: 16, color: Colors.blue),
+                          ),
+                        ],
+                      ),
                       if (isLoggedIn)
                         Row(
                           children: [

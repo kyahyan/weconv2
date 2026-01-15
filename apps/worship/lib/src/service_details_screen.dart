@@ -162,17 +162,40 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
   }
 
   Widget _buildLineUpTab() {
-    final songItems = _programItems.where((i) => i.type == 'song').toList();
+    final lineUpItems = _programItems.where((i) => i.type == 'song' || i.type == 'header').toList();
+    lineUpItems.sort((a, b) => a.orderIndex.compareTo(b.orderIndex));
     
-    if (songItems.isEmpty) {
-      return const Center(child: Text("No songs in line up."));
+    if (lineUpItems.isEmpty) {
+      return const Center(child: Text("No items in line up."));
     }
 
     return ListView.builder(
       padding: const EdgeInsets.all(16),
-      itemCount: songItems.length,
+      itemCount: lineUpItems.length,
       itemBuilder: (context, index) {
-        final item = songItems[index];
+        final item = lineUpItems[index];
+
+        if (item.type == 'header') {
+           return Container(
+             padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+             margin: const EdgeInsets.only(top: 16, bottom: 8),
+             decoration: BoxDecoration(
+               color: Colors.grey[200],
+               borderRadius: BorderRadius.circular(4),
+             ),
+             child: Center(
+               child: Text(
+                 item.title.toUpperCase(),
+                 style: TextStyle(
+                   color: Colors.grey[800],
+                   fontWeight: FontWeight.bold,
+                   letterSpacing: 1.2,
+                 ),
+               ),
+             ),
+           );
+        }
+
         return Card(
            child: ListTile(
             leading: const Icon(Icons.music_note, color: Colors.deepPurple),
@@ -187,8 +210,8 @@ class _ServiceDetailsScreenState extends State<ServiceDetailsScreen> {
   }
 
   Widget _buildProgramTab() {
-    // Filter out songs for the Program tab
-    final displayItems = _programItems.where((i) => i.type != 'song').toList();
+    // Filter out songs and headers for the Program tab
+    final displayItems = _programItems.where((i) => i.type != 'song' && i.type != 'header').toList();
 
     if (displayItems.isEmpty) {
       return const Center(child: Text('No program items found.'));

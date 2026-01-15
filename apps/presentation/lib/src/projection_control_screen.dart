@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'features/workspace/workspace_explorer.dart';
 import 'features/media/media_bin.dart';
 import 'features/editor/main_editor_area.dart';
+import 'features/editor/presentation_slide_list.dart';
+import 'features/editor/presentation_editor_controls.dart';
 import 'features/online/online_service_panel.dart';
 
 class ProjectionControlScreen extends StatefulWidget {
@@ -15,6 +17,7 @@ class _ProjectionControlScreenState extends State<ProjectionControlScreen> {
   int _selectedTabIndex = 0; 
   double _bottomPanelHeight = 400.0;
   double _workspaceWidth = 300.0;
+  int _selectedSlideIndex = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -72,44 +75,89 @@ class _ProjectionControlScreenState extends State<ProjectionControlScreen> {
                             SizedBox(
                               height: topHeight > 0 ? topHeight : 0,
                               /* Top Row: Workspace & Online */
-                              child: Row(
-                                children: [
-                                  // Workspace/Library
-                                  SizedBox(
-                                    width: _workspaceWidth, 
-                                    child: WorkspaceExplorer(),
-                                  ),
-                                  
-                                  // Resize Handle
-                                  MouseRegion(
-                                    cursor: SystemMouseCursors.resizeLeftRight,
-                                    child: GestureDetector(
-                                      behavior: HitTestBehavior.translucent,
-                                      onHorizontalDragUpdate: (details) {
-                                        setState(() {
-                                          _workspaceWidth += details.delta.dx;
-                                          _workspaceWidth = _workspaceWidth.clamp(100.0, constraints.maxWidth - 100.0);
-                                        });
-                                      },
-                                      child: Container(
-                                        width: 8,
-                                        color: const Color(0xFF1E1E1E), 
-                                        alignment: Alignment.center,
-                                        child: Container(
-                                          width: 2,
-                                          height: 40,
-                                          color: Colors.grey.withOpacity(0.3),
+                              child: _selectedTabIndex == 1 // Editor Mode
+                                ? Row(
+                                    children: [
+                                      // Workspace/Library
+                                      SizedBox(
+                                        width: _workspaceWidth, 
+                                        child: WorkspaceExplorer(),
+                                      ),
+                                      
+                                      // Resize Handle
+                                      MouseRegion(
+                                        cursor: SystemMouseCursors.resizeLeftRight,
+                                        child: GestureDetector(
+                                          behavior: HitTestBehavior.translucent,
+                                          onHorizontalDragUpdate: (details) {
+                                            setState(() {
+                                              _workspaceWidth += details.delta.dx;
+                                              _workspaceWidth = _workspaceWidth.clamp(100.0, constraints.maxWidth - 100.0);
+                                            });
+                                          },
+                                          child: Container(
+                                            width: 8,
+                                            color: const Color(0xFF1E1E1E), 
+                                            alignment: Alignment.center,
+                                            child: Container(
+                                              width: 2,
+                                              height: 40,
+                                              color: Colors.grey.withOpacity(0.3),
+                                            ),
+                                          ),
                                         ),
                                       ),
-                                    ),
-                                  ),
 
-                                  // Online/Service
-                                  Expanded(
-                                    child: Container(color: const Color(0xFF2D2D2D)), // Empty Placeholder
+                                      // Editor Content
+                                      Expanded(
+                                        child: PresentationSlideList(
+                                          onSlideSelected: (index) {
+                                            setState(() {
+                                              _selectedSlideIndex = index;
+                                            });
+                                          },
+                                        ),
+                                      ),
+                                    ],
+                                  )
+                                : Row(
+                                    children: [
+                                      // Workspace/Library
+                                      SizedBox(
+                                        width: _workspaceWidth, 
+                                        child: WorkspaceExplorer(),
+                                      ),
+                                      
+                                      // Resize Handle
+                                      MouseRegion(
+                                        cursor: SystemMouseCursors.resizeLeftRight,
+                                        child: GestureDetector(
+                                          behavior: HitTestBehavior.translucent,
+                                          onHorizontalDragUpdate: (details) {
+                                            setState(() {
+                                              _workspaceWidth += details.delta.dx;
+                                              _workspaceWidth = _workspaceWidth.clamp(100.0, constraints.maxWidth - 100.0);
+                                            });
+                                          },
+                                          child: Container(
+                                            width: 8,
+                                            color: const Color(0xFF1E1E1E), 
+                                            alignment: Alignment.center,
+                                            child: Container(
+                                              width: 2,
+                                              height: 40,
+                                              color: Colors.grey.withOpacity(0.3),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+
+                                      // Online/Service
+                                      Expanded(
+                                        child: Container(color: const Color(0xFF2D2D2D)), // Empty Placeholder
+                                      ),
+                                    ],
                                   ),
-                                ],
-                              ),
                             ),
                             
                             // Resizable Divider
@@ -237,7 +285,7 @@ class _ProjectionControlScreenState extends State<ProjectionControlScreen> {
       case 0: // Main (was Order of Service)
         return const MainEditorArea();
       case 1: // Editor
-        return const Center(child: Text('Editor View', style: TextStyle(color: Colors.white54)));
+        return PresentationEditorControls(selectedSlideIndex: _selectedSlideIndex);
       case 2: // Bible
         return const Center(child: Text('Bible View', style: TextStyle(color: Colors.white54)));
       case 3: // Media

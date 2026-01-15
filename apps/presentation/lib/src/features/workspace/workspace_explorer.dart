@@ -282,10 +282,6 @@ class _WorkspaceExplorerState extends ConsumerState<WorkspaceExplorer> {
             value: 'new_service',
             child: Text('New Service', style: TextStyle(color: Colors.white)),
           ),
-          const PopupMenuItem(
-            value: 'new_lineup',
-            child: Text('New Lineup', style: TextStyle(color: Colors.white)),
-          ),
           const PopupMenuDivider(),
         ],
         const PopupMenuItem(
@@ -307,9 +303,6 @@ class _WorkspaceExplorerState extends ConsumerState<WorkspaceExplorer> {
         break;
       case 'new_service':
         _createNew(node.path, 'Service', ext: '.wc_service');
-        break;
-      case 'new_lineup':
-        _createNew(node.path, 'Lineup', ext: '.wc_lineup');
         break;
       case 'rename':
         _rename(node);
@@ -430,6 +423,14 @@ class _WorkspaceExplorerState extends ConsumerState<WorkspaceExplorer> {
     );
     
     if (confirm == true) {
+      // Check if we are deleting the currently open file
+      final activeFile = ref.read(activeFileProvider);
+      if (activeFile != null && activeFile.path == node.path) {
+          ref.read(activeFileProvider.notifier).state = null;
+          ref.read(activeProjectProvider.notifier).state = null;
+          ref.read(activeEditorItemProvider.notifier).state = null;
+      }
+      
       ref.read(workspaceControllerProvider.notifier).deleteEntity(node.path);
     }
   }
@@ -450,9 +451,18 @@ class _WorkspaceExplorerState extends ConsumerState<WorkspaceExplorer> {
     );
     
     if (confirm == true) {
+      // Check active file match
+      final activeFile = ref.read(activeFileProvider);
+      if (activeFile != null && activeFile.path == path) {
+          ref.read(activeFileProvider.notifier).state = null;
+          ref.read(activeProjectProvider.notifier).state = null;
+          ref.read(activeEditorItemProvider.notifier).state = null;
+      }
+
       // Clear selection if deleting selected item
       if (ref.read(selectedPathProvider) == path) {
          ref.read(selectedPathProvider.notifier).state = null;
+         // activeFileProvider is handled above, but good to be safe
          ref.read(activeFileProvider.notifier).state = null;
       }
       ref.read(workspaceControllerProvider.notifier).deleteEntity(path);

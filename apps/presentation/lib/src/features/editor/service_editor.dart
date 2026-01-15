@@ -5,16 +5,21 @@ import '../service/service_model.dart';
 import '../service/service_timeline.dart';
 import 'song_lineup_editor.dart';
 
-class ServiceEditor extends StatefulWidget {
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'editor_provider.dart';
+import 'lyrics_parser.dart';
+
+class ServiceEditor extends ConsumerStatefulWidget {
   final File file;
 
   const ServiceEditor({super.key, required this.file});
 
   @override
-  State<ServiceEditor> createState() => _ServiceEditorState();
+  ConsumerState<ServiceEditor> createState() => _ServiceEditorState();
 }
 
-class _ServiceEditorState extends State<ServiceEditor> {
+class _ServiceEditorState extends ConsumerState<ServiceEditor> {
   ServiceProject? _project;
   bool _isLoading = true;
   String? _error;
@@ -24,6 +29,12 @@ class _ServiceEditorState extends State<ServiceEditor> {
   void initState() {
     super.initState();
     _loadFile();
+    
+    // Restore selection if provider has it (e.g. returning from another tab)
+    final initialItem = ref.read(activeEditorItemProvider);
+    if (initialItem != null) {
+       _selectedItemId = initialItem.id;
+    }
   }
 
   @override
@@ -44,18 +55,136 @@ class _ServiceEditorState extends State<ServiceEditor> {
       final content = await widget.file.readAsString();
       if (content.isEmpty) {
         // New empty file
+        final newProject = ServiceProject(title: 'New Service', items: []);
         setState(() {
-            _project = ServiceProject(title: 'New Service', items: []);
+            _project = newProject;
            _isLoading = false;
+        });
+        // Sync to provider and clear stale item selection
+        Future.microtask(() {
+          ref.read(activeProjectProvider.notifier).state = newProject;
+          ref.read(activeEditorItemProvider.notifier).state = null;
         });
         return;
       }
       
       try {
           final json = jsonDecode(content);
+          final loadedProject = ServiceProject.fromJson(json);
           setState(() {
-            _project = ServiceProject.fromJson(json);
+            _project = loadedProject;
             _isLoading = false;
+          });
+          // Sync to provider
+          Future.microtask(() async {
+             var projectToSync = loadedProject;
+             bool projectUpdated = false;
+
+             print('DEBUG: Processing ${projectToSync.items.length} items for auto-parsing.');
+
+             // Identify items needing fetch
+             final itemsToFetch = <String, String>{}; // map item.id -> song.id
+             for (var item in projectToSync.items) {
+                 if (item.type == 'song' && item.slides.isEmpty && (item.description == null || item.description!.isEmpty)) {
+                     if (item.songId != null && item.songId!.isNotEmpty) {
+                         itemsToFetch[item.id] = item.songId!;
+                     }
+                 }
+             }
+
+             if (itemsToFetch.isNotEmpty) {
+                  print('DEBUG: Found ${itemsToFetch.length} items needing lyrics fetch from Supabase.');
+                  // Fetch from Supabase
+                  try {
+                     final response = await Supabase.instance.client
+                         .from('songs')
+                         .select('id, content')
+                         .inFilter('id', itemsToFetch.values.toList());
+                     
+                     final fetchedContent = {
+                        for (var row in (response as List)) 
+                           row['id'] as String: row['content'] as String?
+                     };
+                     
+                     // Update project logic
+                     final updatedItems = projectToSync.items.map((item) {
+                        // Case 1: Just fetched content
+                        if (itemsToFetch.containsKey(item.id)) {
+                           final songId = itemsToFetch[item.id];
+                           final content = fetchedContent[songId];
+                           if (content != null && content.isNotEmpty) {
+                               print('DEBUG: Fetched content for "${item.title}". Parsing...');
+                               final slides = LyricsParser.parse(content);
+                               if (slides.isNotEmpty) {
+                                  projectUpdated = true;
+                                  return item.copyWith(slides: slides, description: content);
+                               }
+                           }
+                        }
+                        
+                        // Case 2: Already had content but needed parsing (Previous logic)
+                        if (item.type == 'song' && item.slides.isEmpty && (item.description?.isNotEmpty ?? false)) {
+                           print('DEBUG: Parsing existing description for "${item.title}"...');
+                           final slides = LyricsParser.parse(item.description!);
+                           if (slides.isNotEmpty) {
+                              projectUpdated = true;
+                              return item.copyWith(slides: slides);
+                           }
+                        }
+                        return item;
+                     }).toList();
+
+                     if (projectUpdated) {
+                        projectToSync = ServiceProject(title: projectToSync.title, items: updatedItems);
+                        ref.read(activeProjectProvider.notifier).state = projectToSync;
+                        if (mounted) {
+                           setState(() {
+                              _project = projectToSync;
+                           });
+                        }
+                     }
+                  } catch (e) {
+                      print('DEBUG: Error fetching lyrics from Supabase: $e');
+                  }
+             } else {
+                 // Standard auto-parse loop if no fetch needed
+                 final updatedItems = projectToSync.items.map((item) {
+                    if (item.type == 'song' && item.slides.isEmpty && (item.description?.isNotEmpty ?? false)) {
+                       final slides = LyricsParser.parse(item.description!);
+                       if (slides.isNotEmpty) {
+                          projectUpdated = true;
+                          return item.copyWith(slides: slides);
+                       }
+                    }
+                    return item;
+                 }).toList();
+
+                 if (projectUpdated) {
+                    projectToSync = ServiceProject(title: projectToSync.title, items: updatedItems);
+                    ref.read(activeProjectProvider.notifier).state = projectToSync;
+                    if (mounted) setState(() => _project = projectToSync);
+                 }
+             }
+             
+             // Ensure provider is set at least once if not updated above
+             if (!projectUpdated) {
+                ref.read(activeProjectProvider.notifier).state = projectToSync;
+             }
+             
+             // Clear stale selection if item doesn't exist in this project
+             final currentItem = ref.read(activeEditorItemProvider);
+             if (currentItem != null && !projectToSync.items.any((i) => i.id == currentItem.id)) {
+                ref.read(activeEditorItemProvider.notifier).state = null;
+             }
+             
+             // Auto-select first song if no valid selection
+             if (ref.read(activeEditorItemProvider) == null) {
+                final firstSong = projectToSync.items.firstWhere((i) => i.type == 'song', orElse: () => ServiceItem(id: '', title: '', type: ''));
+                if (firstSong.id.isNotEmpty) {
+                   ref.read(activeEditorItemProvider.notifier).state = firstSong;
+                   if (mounted) setState(() => _selectedItemId = firstSong.id);
+                }
+             }
           });
       } catch (e) {
            setState(() {
@@ -102,6 +231,14 @@ class _ServiceEditorState extends State<ServiceEditor> {
 
   @override
   Widget build(BuildContext context) {
+    // Listen to project provider changes and auto-save
+    ref.listen<ServiceProject?>(activeProjectProvider, (previous, next) {
+      if (next != null && previous != null && next != previous) {
+        _project = next;
+        _save();
+      }
+    });
+
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -112,94 +249,60 @@ class _ServiceEditorState extends State<ServiceEditor> {
     
     if (_project == null) return const SizedBox.shrink();
 
-    final fullLineUpItem = ServiceItem(
-      id: 'full-line-up', 
-      title: 'Full Service Lineup', 
-      type: 'worship_set', 
-    );
-
-    return DefaultTabController(
-      length: 2,
-      child: Container(
-        color: const Color(0xFF1E1E1E),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Editor Header with Title and Tabs
-            Container(
-               padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-               child: Column(
-                 crossAxisAlignment: CrossAxisAlignment.start,
-                 children: [
-                    Text(
-                      _project!.title,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    const TabBar(
-                      isScrollable: true,
-                      labelColor: Colors.blue,
-                      unselectedLabelColor: Colors.white60,
-                      indicatorColor: Colors.blue,
-                      dividerColor: Colors.transparent,
-                      tabAlignment: TabAlignment.start, 
-                      tabs: [
-                        Tab(text: "Program"),
-                        Tab(text: "Line Up"),
-                      ]
-                    ),
-                 ],
-               ),
-            ),
-            
-            Expanded(
-              child: TabBarView( 
-                children: [
-                  // Tab 1: Program (Split View)
-                  Row( 
-                    children: [
-                      // Left: Timeline List
-                      Expanded(
-                        flex: 1,
-                        child: Container(
-                          decoration: const BoxDecoration(
-                            border: Border(right: BorderSide(color: Colors.white10)),
-                          ),
-                          child: ServiceTimeline(
-                            items: _project!.items,
-                            onReorder: _onReorder,
-                            onAddItem: _onAddItem,
-                            selectedItemId: _selectedItemId,
-                            onItemSelected: _onItemSelected,
-                          ),
-                        ),
-                      ),
-                      
-                      // Right: Detail View
-                      Expanded(
-                        flex: 2,
-                        child: _buildDetailView(),
-                      ),
-                    ],
-                  ),
-
-                  // Tab 2: Line Up (Full Song List)
-                  Container(
-                    color: const Color(0xFF1E1E1E), // Ensure background matches
-                    child: SongLineupEditor(
-                      activeItem: fullLineUpItem, 
-                      allItems: _project!.items,
+    return Container(
+      color: const Color(0xFF1E1E1E),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Editor Header with Title
+          Container(
+             padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+             child: Column(
+               crossAxisAlignment: CrossAxisAlignment.start,
+               children: [
+                  Text(
+                    _project!.title,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
-                ],
-              ),
+                  const SizedBox(height: 16),
+               ],
+             ),
+          ),
+          
+          // Single view: Program (Split View)
+          Expanded(
+            child: Row( 
+              children: [
+                // Left: Timeline List
+                Expanded(
+                  flex: 1,
+                  child: Container(
+                    decoration: const BoxDecoration(
+                      border: Border(right: BorderSide(color: Colors.white10)),
+                    ),
+                    child: ServiceTimeline(
+                      items: _project!.items,
+                      onReorder: _onReorder,
+                      onAddItem: _onAddItem,
+                      selectedItemId: _selectedItemId,
+                      onItemSelected: _onItemSelected,
+                    ),
+                  ),
+                ),
+                
+                // Right: Detail View
+                Expanded(
+                  flex: 2,
+                  child: _buildDetailView(),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -208,6 +311,14 @@ class _ServiceEditorState extends State<ServiceEditor> {
     setState(() {
       _selectedItemId = id;
     });
+    
+    // Find the item and update provider ONLY for song/header types (not program items)
+    if (_project != null) {
+       final item = _project!.items.firstWhere((i) => i.id == id, orElse: () => ServiceItem(id: '', title: '', type: 'unknown'));
+       if (item.id.isNotEmpty && (item.type == 'song' || item.type == 'header')) {
+          ref.read(activeEditorItemProvider.notifier).state = item;
+       }
+    }
   }
 
   Widget _buildDetailView() {

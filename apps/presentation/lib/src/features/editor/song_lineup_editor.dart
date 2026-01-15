@@ -14,10 +14,12 @@ class SongLineupEditor extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Filter for songs in the lineup
-    final songs = allItems.where((i) => i.type == 'song').toList();
+    // Filter for songs and headers in the lineup
+    final displayItems = allItems.where((i) => i.type == 'song' || i.type == 'header').toList();
+    // Items are already ordered in the list as preserved from JSON/ServiceProject
     
     final isGroup = activeItem.type == 'worship_set';
+    final songCount = displayItems.where((i) => i.type == 'song').length;
 
     return Container(
       color: const Color(0xFF1E1E1E),
@@ -41,23 +43,39 @@ class SongLineupEditor extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             isGroup 
-              ? '${songs.length} Songs • 15:00' 
+              ? '$songCount Songs • 15:00' 
               : '${activeItem.type.toUpperCase()} • 5:00 ${activeItem.artist != null ? '• ${activeItem.artist}' : ''}', 
             style: const TextStyle(color: Colors.grey)
           ),
           const Divider(color: Colors.white10, height: 32),
           
           // Lineup List (Only for Worship Set)
-          if (isGroup && songs.isNotEmpty) ...[
+          if (isGroup && displayItems.isNotEmpty) ...[
              const Text('Line Up', style: TextStyle(color: Colors.white70, fontSize: 16)),
              const SizedBox(height: 16),
              Expanded(
                child: ListView.builder(
-                 itemCount: songs.length,
+                 itemCount: displayItems.length,
                  itemBuilder: (context, index) {
-                   final song = songs[index];
-                   final isActive = song.id == activeItem.id;
-                   return _buildSongItem(song, isActive);
+                   final item = displayItems[index];
+                   if (item.type == 'header') {
+                      return Container(
+                        margin: const EdgeInsets.only(top: 16, bottom: 8),
+                        child: Center(
+                          child: Text(
+                            item.title.toUpperCase(),
+                            style: const TextStyle(
+                              color: Colors.white54,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 1.5,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      );
+                   }
+                   final isActive = item.id == activeItem.id;
+                   return _buildSongItem(item, isActive);
                  },
                ),
              ),

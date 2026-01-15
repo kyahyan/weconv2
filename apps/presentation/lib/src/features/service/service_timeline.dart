@@ -156,8 +156,8 @@ class _ServiceTimelineState extends State<ServiceTimeline> {
   }
 
   List<ServiceItem> get _groupedItems {
-    // Filter out songs from the program view as they are managed in the "Line Up" tab
-    return widget.items.where((item) => item.type != 'song').toList();
+    // Filter out songs and headers from the program view (they are managed in "Line Up" tab)
+    return widget.items.where((item) => item.type != 'song' && item.type != 'header').toList();
   }
 
   Icon _getIconForType(String type) {
@@ -177,7 +177,8 @@ class _ServiceTimelineState extends State<ServiceTimeline> {
 
   Future<void> _showAddItemDialog() async {
     String title = '';
-    String type = 'song';
+    String type = '';
+    String assignedTo = '';
     
     await showDialog(
       context: context,
@@ -195,22 +196,31 @@ class _ServiceTimelineState extends State<ServiceTimeline> {
                     labelText: 'Title',
                     labelStyle: TextStyle(color: Colors.white70),
                     enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white54)),
+                    focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.blue)),
                   ),
                   onChanged: (val) => title = val,
                 ),
                 const SizedBox(height: 16),
-                DropdownButton<String>(
-                  value: type,
-                  dropdownColor: const Color(0xFF333333),
-                  isExpanded: true,
+                TextField(
                   style: const TextStyle(color: Colors.white),
-                  items: const [
-                    DropdownMenuItem(value: 'song', child: Text('Song')),
-                    DropdownMenuItem(value: 'scripture', child: Text('Scripture')),
-                    DropdownMenuItem(value: 'media', child: Text('Media')),
-                    DropdownMenuItem(value: 'header', child: Text('Header')),
-                  ],
-                  onChanged: (val) => setState(() => type = val!),
+                  decoration: const InputDecoration(
+                    labelText: 'Type (e.g. prayer, announcement)',
+                    labelStyle: TextStyle(color: Colors.white70),
+                    enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white54)),
+                    focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.blue)),
+                  ),
+                  onChanged: (val) => type = val,
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    labelText: 'Assigned To',
+                    labelStyle: TextStyle(color: Colors.white70),
+                    enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white54)),
+                    focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.blue)),
+                  ),
+                  onChanged: (val) => assignedTo = val,
                 ),
               ],
             ),
@@ -222,7 +232,8 @@ class _ServiceTimelineState extends State<ServiceTimeline> {
                     final newItem = ServiceItem(
                       id: const Uuid().v4(),
                       title: title,
-                      type: type,
+                      type: type.isEmpty ? 'other' : type.toLowerCase(),
+                      assigneeName: assignedTo.isEmpty ? null : assignedTo,
                     );
                     widget.onAddItem(newItem);
                     Navigator.pop(context);
