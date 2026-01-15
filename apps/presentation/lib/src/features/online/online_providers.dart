@@ -9,6 +9,7 @@ import '../service/service_model.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../auth/auth_provider.dart';
 import '../service/service_timeline.dart'; // For ServiceItem if needed, or just standard model
+import '../workspace/workspace_explorer.dart'; // For selectedPathProvider
 
 class OnlineServiceItem {
   final String id;
@@ -67,6 +68,42 @@ final onlineServicesProvider = FutureProvider<List<OnlineServiceItem>>((ref) asy
   }).toList();
 });
 
+class OnlineSong {
+  final String id;
+  final String title;
+  final String artist;
+  final String content; // Lyrics
+
+  OnlineSong({
+    required this.id,
+    required this.title,
+    required this.artist,
+    required this.content,
+  });
+}
+
+final onlineSongsProvider = FutureProvider<List<OnlineSong>>((ref) async {
+  final authState = ref.watch(authProvider);
+  if (authState.value == null) return [];
+
+  final supabase = Supabase.instance.client;
+  
+  // Fetch songs with content
+  final response = await supabase
+      .from('songs')
+      .select('id, title, artist, content') // content field holds lyrics usually
+      .order('title', ascending: true);
+      
+  return (response as List).map((data) {
+    return OnlineSong(
+      id: data['id'],
+      title: data['title'] ?? 'Untitled Song',
+      artist: data['artist'] ?? 'Unknown Artist',
+      content: data['content'] ?? '',
+    );
+  }).toList();
+});
+
 final onlineImportProvider = Provider((ref) => OnlineImportService(ref));
 
 class OnlineImportService {
@@ -77,7 +114,19 @@ class OnlineImportService {
   Future<void> importService(OnlineServiceItem item) async {
     try {
       final docsDir = await getApplicationDocumentsDirectory();
-      final targetDir = Directory(p.join(docsDir.path, 'WeConnect'));
+      String targetPath = p.join(docsDir.path, 'WeConnect');
+      
+      // Determine target directory based on selection
+      final selectedPath = ref.read(selectedPathProvider);
+      if (selectedPath != null && selectedPath.startsWith(targetPath)) {
+        if (await FileSystemEntity.isDirectory(selectedPath)) {
+          targetPath = selectedPath;
+        } else {
+          targetPath = p.dirname(selectedPath);
+        }
+      }
+
+      final targetDir = Directory(targetPath);
       if (!await targetDir.exists()) {
         await targetDir.create(recursive: true);
       }

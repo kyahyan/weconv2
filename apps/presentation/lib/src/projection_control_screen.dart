@@ -14,6 +14,7 @@ class ProjectionControlScreen extends StatefulWidget {
 class _ProjectionControlScreenState extends State<ProjectionControlScreen> {
   int _selectedTabIndex = 0; 
   double _bottomPanelHeight = 400.0;
+  double _workspaceWidth = 300.0;
 
   @override
   Widget build(BuildContext context) {
@@ -70,17 +71,41 @@ class _ProjectionControlScreenState extends State<ProjectionControlScreen> {
                             // Top Row: Workspace & Online
                             SizedBox(
                               height: topHeight > 0 ? topHeight : 0,
+                              /* Top Row: Workspace & Online */
                               child: Row(
                                 children: [
                                   // Workspace/Library
-                                  Expanded(
-                                    flex: 3, 
+                                  SizedBox(
+                                    width: _workspaceWidth, 
                                     child: WorkspaceExplorer(),
                                   ),
-                                  const SizedBox(width: 4),
+                                  
+                                  // Resize Handle
+                                  MouseRegion(
+                                    cursor: SystemMouseCursors.resizeLeftRight,
+                                    child: GestureDetector(
+                                      behavior: HitTestBehavior.translucent,
+                                      onHorizontalDragUpdate: (details) {
+                                        setState(() {
+                                          _workspaceWidth += details.delta.dx;
+                                          _workspaceWidth = _workspaceWidth.clamp(100.0, constraints.maxWidth - 100.0);
+                                        });
+                                      },
+                                      child: Container(
+                                        width: 8,
+                                        color: const Color(0xFF1E1E1E), 
+                                        alignment: Alignment.center,
+                                        child: Container(
+                                          width: 2,
+                                          height: 40,
+                                          color: Colors.grey.withOpacity(0.3),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+
                                   // Online/Service
                                   Expanded(
-                                    flex: 5,
                                     child: Container(color: const Color(0xFF2D2D2D)), // Empty Placeholder
                                   ),
                                 ],
@@ -124,13 +149,15 @@ class _ProjectionControlScreenState extends State<ProjectionControlScreen> {
                                     // Header (Tabs)
                                     Row(
                                       children: [
-                                        _buildTabItem('Order of Service', 0),
+                                        _buildTabItem('Main', 0),
                                         const SizedBox(width: 16),
-                                        _buildTabItem('Bible', 1),
+                                        _buildTabItem('Editor', 1),
                                         const SizedBox(width: 16),
-                                        _buildTabItem('Media', 2),
+                                        _buildTabItem('Bible', 2),
                                         const SizedBox(width: 16),
-                                        _buildTabItem('Online', 3),
+                                        _buildTabItem('Media', 3),
+                                        const SizedBox(width: 16),
+                                        _buildTabItem('Online', 4),
                                         const Spacer(),
                                         const Text('Live', style: TextStyle(color: Colors.white, fontSize: 13)),
                                       ],
@@ -207,13 +234,15 @@ class _ProjectionControlScreenState extends State<ProjectionControlScreen> {
 
   Widget _buildBottomPanelContent() {
     switch (_selectedTabIndex) {
-      case 0: // Order of Service
+      case 0: // Main (was Order of Service)
         return const MainEditorArea();
-      case 1: // Bible
+      case 1: // Editor
+        return const Center(child: Text('Editor View', style: TextStyle(color: Colors.white54)));
+      case 2: // Bible
         return const Center(child: Text('Bible View', style: TextStyle(color: Colors.white54)));
-      case 2: // Media
+      case 3: // Media
         return MediaBin();
-      case 3: // Online
+      case 4: // Online
         return OnlinePanel();
       default:
         return const SizedBox();

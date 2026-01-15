@@ -128,6 +128,21 @@ class WorkspaceController extends AsyncNotifier<List<FileSystemNode>> {
     await oldEntity.rename(newPath);
     await refresh();
   }
+
+  Future<void> moveEntity(String sourcePath, String targetParentPath) async {
+    final sourceEntity = await FileSystemEntity.type(sourcePath) == FileSystemEntityType.directory
+        ? Directory(sourcePath)
+        : File(sourcePath);
+        
+    final fileName = p.basename(sourcePath);
+    final newPath = p.join(targetParentPath, fileName);
+    
+    // Prevent moving into itself or same directory
+    if (sourcePath == newPath || p.dirname(sourcePath) == targetParentPath) return;
+
+    await sourceEntity.rename(newPath);
+    await refresh();
+  }
 }
 
 final workspaceControllerProvider = AsyncNotifierProvider<WorkspaceController, List<FileSystemNode>>(WorkspaceController.new);

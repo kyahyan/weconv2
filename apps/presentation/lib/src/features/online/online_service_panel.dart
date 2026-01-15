@@ -20,126 +20,197 @@ class OnlinePanel extends ConsumerWidget {
     final hasError = authState.hasError;
     final errorMsg = authState.error?.toString() ?? 'Unknown Error';
 
-    return Container(
-      color: const Color(0xFF2D2D2D), // Dark panel background
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Header
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            color: const Color(0xFF1E1E1E),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('Online Services', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                if (isLoggedIn)
+    return DefaultTabController(
+      length: 2,
+      child: Container(
+        color: const Color(0xFF2D2D2D), // Dark panel background
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Header
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              color: const Color(0xFF1E1E1E),
+              child: Column(
+                children: [
                   Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(user.fullName ?? 'User', style: const TextStyle(color: Colors.green, fontSize: 12)),
-                      const SizedBox(width: 8),
-                      InkWell(
-                        onTap: () => ref.read(authProvider.notifier).logout(),
-                        child: const Icon(LucideIcons.logOut, size: 14, color: Colors.white54),
-                      )
+                      const Text('Online', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                      if (isLoggedIn)
+                        Row(
+                          children: [
+                            Text(user.fullName ?? 'User', style: const TextStyle(color: Colors.green, fontSize: 12)),
+                            const SizedBox(width: 8),
+                            InkWell(
+                              onTap: () => ref.read(authProvider.notifier).logout(),
+                              child: const Icon(LucideIcons.logOut, size: 14, color: Colors.white54),
+                            )
+                          ],
+                        )
+                      else
+                        InkWell(
+                          onTap: () => showDialog(context: context, builder: (_) => const LoginDialog()),
+                          child: const Text('Login', style: TextStyle(color: Colors.blue, fontSize: 12, fontWeight: FontWeight.bold)),
+                        ),
                     ],
-                  )
-                else
-                  InkWell(
-                    onTap: () => showDialog(context: context, builder: (_) => const LoginDialog()),
-                    child: const Text('Login', style: TextStyle(color: Colors.blue, fontSize: 12, fontWeight: FontWeight.bold)),
                   ),
-              ],
-            ),
-          ),
-          
-          Expanded(
-            child: hasError 
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.warning, size: 48, color: Colors.orange),
-                        const SizedBox(height: 16),
-                        Text(
-                          errorMsg.replaceAll('Exception:', '').trim(), 
-                          style: const TextStyle(color: Colors.redAccent),
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 16),
-                        ElevatedButton(
-                          onPressed: () {
-                             // Reset state or just allow login retry
-                             showDialog(context: context, builder: (_) => const LoginDialog());
-                          },
-                          child: const Text('Try Login Again'),
-                        ),
-                      ],
-                    ),
+                  const SizedBox(height: 8),
+                  const TabBar(
+                    indicatorColor: Colors.blue,
+                    labelColor: Colors.blue,
+                    unselectedLabelColor: Colors.white60,
+                    dividerColor: Colors.transparent,
+                    tabs: [
+                      Tab(text: 'Services'),
+                      Tab(text: 'Songs'),
+                    ],
                   ),
-                )
-              : (!isLoggedIn 
-                ? Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(LucideIcons.lock, size: 48, color: Colors.white24),
-                        const SizedBox(height: 16),
-                        const Text('Login Required', style: TextStyle(color: Colors.white54)),
-                        const SizedBox(height: 16),
-                        ElevatedButton(
-                          onPressed: () => showDialog(context: context, builder: (_) => const LoginDialog()),
-                          child: const Text('Login'),
-                        ),
-                      ],
-                    ),
-                  )
-                : servicesAsync.when(
-                  data: (services) {
-                    if (services.isEmpty) {
-                      return const Center(child: Text('No services found.', style: TextStyle(color: Colors.white54)));
-                    }
-                    return ListView.builder(
-                      padding: const EdgeInsets.all(8),
-                      itemCount: services.length,
-                      itemBuilder: (context, index) {
-                        final item = services[index];
-                        return Card(
-                          color: const Color(0xFF383838),
-                          margin: const EdgeInsets.only(bottom: 8),
-                          child: ListTile(
-                            title: Text(item.title, style: const TextStyle(color: Colors.white)),
-                            subtitle: Text('${item.author} • ${_formatDate(item.date)}', style: const TextStyle(color: Colors.white54, fontSize: 12)),
-                            trailing: IconButton(
-                              icon: const Icon(LucideIcons.download, color: Colors.blue),
-                              onPressed: () async {
-                                  await importService.importService(item);
-                                  if (context.mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text('Imported ${item.title}')),
-                                    );
-                                  }
-                              },
-                              tooltip: 'Import to Workspace',
-                            ),
-                          ),
-                        );
-                      },
-                    );
-                  },
-                  loading: () => const Center(child: CircularProgressIndicator()),
-                  error: (err, stack) => Center(child: Text('Error: $err', style: const TextStyle(color: Colors.red))),
-                )
+                ],
               ),
-          ),
-        ],
+            ),
+            
+            Expanded(
+              child: hasError 
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.warning, size: 48, color: Colors.orange),
+                          const SizedBox(height: 16),
+                          Text(
+                            errorMsg.replaceAll('Exception:', '').trim(), 
+                            style: const TextStyle(color: Colors.redAccent),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton(
+                            onPressed: () {
+                               // Reset state or just allow login retry
+                               showDialog(context: context, builder: (_) => const LoginDialog());
+                            },
+                            child: const Text('Try Login Again'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                : (!isLoggedIn 
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(LucideIcons.lock, size: 48, color: Colors.white24),
+                          const SizedBox(height: 16),
+                          const Text('Login Required', style: TextStyle(color: Colors.white54)),
+                          const SizedBox(height: 16),
+                          ElevatedButton(
+                            onPressed: () => showDialog(context: context, builder: (_) => const LoginDialog()),
+                            child: const Text('Login'),
+                          ),
+                        ],
+                      ),
+                    )
+                  : TabBarView(
+                      children: [
+                        // Tab 1: Services
+                        servicesAsync.when(
+                            data: (services) {
+                              if (services.isEmpty) {
+                                return const Center(child: Text('No services found.', style: TextStyle(color: Colors.white54)));
+                              }
+                              return ListView.builder(
+                                padding: const EdgeInsets.all(8),
+                                itemCount: services.length,
+                                itemBuilder: (context, index) {
+                                  final item = services[index];
+                                  return Card(
+                                    color: const Color(0xFF383838),
+                                    margin: const EdgeInsets.only(bottom: 8),
+                                    child: ListTile(
+                                      title: Text(item.title, style: const TextStyle(color: Colors.white)),
+                                      subtitle: Text('${item.author} • ${_formatDate(item.date)}', style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                                      trailing: IconButton(
+                                        icon: const Icon(LucideIcons.download, color: Colors.blue),
+                                        onPressed: () async {
+                                            await importService.importService(item);
+                                            if (context.mounted) {
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                SnackBar(content: Text('Imported ${item.title}')),
+                                              );
+                                            }
+                                        },
+                                        tooltip: 'Import to Workspace',
+                                      ),
+                                    ),
+                                  );
+                                },
+                              );
+                            },
+                            loading: () => const Center(child: CircularProgressIndicator()),
+                            error: (err, stack) => Center(child: Text('Error: $err', style: const TextStyle(color: Colors.red))),
+                          ),
+
+                        // Tab 2: Songs
+                        _SongsList(),
+                      ],
+                    )
+                ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   String _formatDate(DateTime date) {
     return '${date.month}/${date.day}/${date.year}';
+  }
+}
+
+class _SongsList extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final songsAsync = ref.watch(onlineSongsProvider);
+
+    return songsAsync.when(
+      data: (songs) {
+        if (songs.isEmpty) {
+          return const Center(child: Text('No songs found.', style: TextStyle(color: Colors.white54)));
+        }
+        return ListView.builder(
+          padding: const EdgeInsets.all(8),
+          itemCount: songs.length,
+          itemBuilder: (context, index) {
+            final song = songs[index];
+            return Card(
+              color: const Color(0xFF383838),
+              margin: const EdgeInsets.only(bottom: 8),
+              child: ExpansionTile(
+                title: Text(song.title, style: const TextStyle(color: Colors.white)),
+                subtitle: Text(song.artist, style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                iconColor: Colors.blue,
+                collapsedIconColor: Colors.white54,
+                children: [
+                   Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    color: const Color(0xFF2D2D2D),
+                    child: SelectableText( // Use SelectableText for lyrics copy-paste
+                      song.content.isEmpty ? 'No lyrics available' : song.content,
+                      style: const TextStyle(color: Colors.white70),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (err, stack) => Center(child: Text('Error: $err', style: const TextStyle(color: Colors.red))),
+    );
   }
 }

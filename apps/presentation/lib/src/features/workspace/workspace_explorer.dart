@@ -6,6 +6,9 @@ import 'package:path/path.dart' as p;
 import 'file_system_provider.dart';
 import '../editor/editor_provider.dart';
 
+// Add this provider at the top of the file or near other providers
+final selectedPathProvider = StateProvider<String?>((ref) => null);
+
 class WorkspaceExplorer extends ConsumerStatefulWidget {
   const WorkspaceExplorer({super.key});
 
@@ -16,100 +19,71 @@ class WorkspaceExplorer extends ConsumerStatefulWidget {
 class _WorkspaceExplorerState extends ConsumerState<WorkspaceExplorer> {
   // Track expanded paths
   final Set<String> _expandedPaths = {};
-  String? _selectedNodePath; // Tracks UI selection (highlight)
 
   @override
   Widget build(BuildContext context) {
     // Use the renamed provider
-    final fileSystem = ref.watch(workspaceControllerProvider);
-    // We still watch activeFileProvider to sync back if needed, but local selection drives highlight?
-    // Actually, let's keep it simple: Local selection drives highlight.
-    // Sync to provider if file.
+    final fileSystemState = ref.watch(workspaceControllerProvider);
     
-    return Container(
-      color: Colors.transparent, // Replaces ShadCard
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            color: const Color(0xFF2D2D2D),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'Workspace',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12,
-                  ),
-                ),
-                Row(
-                  children: [
-                     // Create Project Button
-                     IconButton(
-                        iconSize: 16,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                        icon: const Icon(LucideIcons.plus, color: Colors.white70),
-                        onPressed: _showCreateProjectDialog,
-                        tooltip: 'New Project',
-                     ),
-                     const SizedBox(width: 4),
-                     // Delete Button
-                     IconButton(
-                        iconSize: 16,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                        icon: Icon(LucideIcons.trash2, 
-                          color: _selectedNodePath != null ? Colors.red[300] : Colors.white24
-                        ),
-                        onPressed: _selectedNodePath != null 
-                          ? () => _delete(FileSystemNode(path: _selectedNodePath!, name: p.basename(_selectedNodePath!), isDirectory: false)) // Hack: reconstruction just for delete check
-                          : null,
-                        tooltip: 'Delete Selected',
-                     ),
-                     const SizedBox(width: 4),
-                     // Refresh button
-                     IconButton(
-                        iconSize: 16,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                        icon: const Icon(LucideIcons.refreshCw, color: Colors.white70),
-                        onPressed: () => ref.read(workspaceControllerProvider.notifier).refresh(),
-                        tooltip: 'Refresh',
-                     ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: fileSystem.when(
-              data: (nodes) {
-                if (nodes.isEmpty) {
-                  return const Center(
-                    child: Text('No Projects Found', style: TextStyle(color: Colors.grey)),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Toolbar
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          color: const Color(0xFF1E1E1E),
+          child: Row(
+            children: [
+              const Text('Workspace', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              const Spacer(),
+              IconButton(onPressed: () => _showCreateProjectDialog(), icon: const Icon(LucideIcons.plus, size: 16, color: Colors.white70)),
+              Consumer(
+                builder: (context, ref, child) {
+                  final selectedPath = ref.watch(selectedPathProvider);
+                  return IconButton(
+                    onPressed: selectedPath != null 
+                        ? () => _deletePath(selectedPath) 
+                        : null, 
+                    icon: Icon(
+                      LucideIcons.trash2, 
+                      size: 16, 
+                      color: selectedPath != null ? Colors.white70 : Colors.white24
+                    )
                   );
-                }
-                return ListView(
-                  padding: const EdgeInsets.all(4),
-                  children: nodes.map((node) => _buildNode(node, 0)).toList(),
-                );
-              },
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (err, stack) => Center(child: Text('Error: $err', style: const TextStyle(color: Colors.red))),
-            ),
+                },
+              ),
+              IconButton(
+                onPressed: () => ref.read(workspaceControllerProvider.notifier).refresh(), 
+                icon: const Icon(LucideIcons.refreshCcw, size: 16, color: Colors.white70)
+              ),
+            ],
           ),
-        ],
-      ),
+        ),
+        Expanded(
+          child: fileSystemState.when(
+            data: (nodes) {
+              if (nodes.isEmpty) {
+                return const Center(
+                  child: Text('No Projects Found', style: TextStyle(color: Colors.grey)),
+                );
+              }
+              return ListView(
+                padding: EdgeInsets.zero, // Remove default padding
+                children: nodes.map((node) => _buildNode(node, 0)).toList(),
+              );
+            },
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (err, stack) => Center(child: Text('Error: $err', style: const TextStyle(color: Colors.red))),
+          ),
+        ),
+      ],
     );
   }
 
   Widget _buildNode(FileSystemNode node, int depth) {
     final isExpanded = _expandedPaths.contains(node.path);
-    final isSelected = _selectedNodePath == node.path;
+    final selectedPath = ref.watch(selectedPathProvider);
+    final isSelected = selectedPath == node.path;
     final hasChildren = node.children != null && node.children!.isNotEmpty;
 
     // Determine Icon
@@ -126,6 +100,9 @@ class _WorkspaceExplorerState extends ConsumerState<WorkspaceExplorer> {
         icon = LucideIcons.file;
       }
     }
+
+    // Display Name Logic
+    final displayName = node.isDirectory ? node.name : p.basenameWithoutExtension(node.name);
 
     Widget content = GestureDetector(
        onSecondaryTapUp: (details) {
@@ -181,7 +158,7 @@ class _WorkspaceExplorerState extends ConsumerState<WorkspaceExplorer> {
              const SizedBox(width: 8),
              Expanded(
                child: Text(
-                 node.name,
+                 displayName, // Use display name here
                  style: const TextStyle(color: Colors.white, fontSize: 13),
                  overflow: TextOverflow.ellipsis,
                ),
@@ -191,23 +168,85 @@ class _WorkspaceExplorerState extends ConsumerState<WorkspaceExplorer> {
        ),
     );
 
+    // FIX: Wrap logic for directories - ensure we render DragTarget AND recursive children
+    Widget nodeWidget = content;
+    
+    if (node.isDirectory) {
+      nodeWidget = DragTarget<String>(
+        onWillAccept: (data) {
+          if (data == null) return false;
+          // node.path is target path
+          if (data == node.path) return false;
+          // IMPORTANT: Allow dragging into folder, checking strictly parent is different
+          final parent = p.dirname(data);
+          if (parent == node.path) return false; // Already in this folder
+          
+          return true; 
+        },
+        onAccept: (data) {
+          // data is NOT null here because onWillAccept filtered it
+          ref.read(workspaceControllerProvider.notifier).moveEntity(data!, node.path);
+        },
+        builder: (context, candidateData, rejectedData) {
+          final isHovering = candidateData.isNotEmpty;
+          return Container(
+             decoration: isHovering 
+               ? BoxDecoration(
+                   color: Colors.blue.withOpacity(0.3),
+                   border: Border.all(color: Colors.blueAccent),
+                   borderRadius: BorderRadius.circular(4)
+                 )
+               : null,
+             child: content // content is the header row
+          );
+        },
+      );
+    } else {
+      // File Draggable Logic
+      nodeWidget = Draggable<String>(
+        data: node.path,
+        feedback: Material(
+          color: Colors.transparent,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: const Color(0xFF2D2D2D),
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(color: Colors.blueAccent),
+            ),
+            child: Row(
+               mainAxisSize: MainAxisSize.min,
+               children: [
+                 Icon(icon, size: 16, color: Colors.white),
+                 const SizedBox(width: 8),
+                 Text(displayName, style: const TextStyle(color: Colors.white, fontSize: 13)), 
+               ],
+            ),
+          ),
+        ),
+        childWhenDragging: Opacity(
+          opacity: 0.5,
+          child: content,
+        ),
+        child: content,
+      );
+    }
+    
     if (node.isDirectory && isExpanded && node.children != null) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          content,
+          nodeWidget, // The header
           ...node.children!.map((child) => _buildNode(child, depth + 1)),
         ],
       );
     }
     
-    return content;
+    return nodeWidget;
   }
 
   void _selectNode(FileSystemNode node) {
-    setState(() {
-      _selectedNodePath = node.path;
-    });
+    ref.read(selectedPathProvider.notifier).state = node.path;
     
     if (!node.isDirectory) {
       ref.read(activeFileProvider.notifier).state = File(node.path);
@@ -392,6 +431,31 @@ class _WorkspaceExplorerState extends ConsumerState<WorkspaceExplorer> {
     
     if (confirm == true) {
       ref.read(workspaceControllerProvider.notifier).deleteEntity(node.path);
+    }
+  }
+
+  Future<void> _deletePath(String path) async {
+     final name = p.basename(path);
+     final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF2D2D2D),
+        title: const Text('Delete', style: TextStyle(color: Colors.white)),
+        content: Text('Are you sure you want to delete "$name"?', style: const TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete', style: TextStyle(color: Colors.red))),
+        ],
+      ),
+    );
+    
+    if (confirm == true) {
+      // Clear selection if deleting selected item
+      if (ref.read(selectedPathProvider) == path) {
+         ref.read(selectedPathProvider.notifier).state = null;
+         ref.read(activeFileProvider.notifier).state = null;
+      }
+      ref.read(workspaceControllerProvider.notifier).deleteEntity(path);
     }
   }
 }
