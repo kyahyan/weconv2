@@ -30,50 +30,29 @@ class _WorkspaceExplorerState extends ConsumerState<WorkspaceExplorer> {
       children: [
         // Toolbar
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           color: const Color(0xFF1E1E1E),
-          child: Row(
-            children: [
-              const Text('Workspace', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-              const Spacer(),
-              IconButton(onPressed: () => _showCreateProjectDialog(), icon: const Icon(LucideIcons.plus, size: 16, color: Colors.white70)),
-              Consumer(
-                builder: (context, ref, child) {
-                  final selectedPath = ref.watch(selectedPathProvider);
-                  return IconButton(
-                    onPressed: selectedPath != null 
-                        ? () => _deletePath(selectedPath) 
-                        : null, 
-                    icon: Icon(
-                      LucideIcons.trash2, 
-                      size: 16, 
-                      color: selectedPath != null ? Colors.white70 : Colors.white24
-                    )
-                  );
-                },
-              ),
-              IconButton(
-                onPressed: () => ref.read(workspaceControllerProvider.notifier).refresh(), 
-                icon: const Icon(LucideIcons.refreshCcw, size: 16, color: Colors.white70)
-              ),
-            ],
-          ),
+          child: const Text('Workspace', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         ),
         Expanded(
-          child: fileSystemState.when(
-            data: (nodes) {
-              if (nodes.isEmpty) {
-                return const Center(
-                  child: Text('No Projects Found', style: TextStyle(color: Colors.grey)),
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onSecondaryTapUp: (details) => _showBackgroundMenu(context, details.globalPosition),
+            child: fileSystemState.when(
+              data: (nodes) {
+                if (nodes.isEmpty) {
+                  return const Center(
+                    child: Text('No Projects Found', style: TextStyle(color: Colors.grey)),
+                  );
+                }
+                return ListView(
+                  padding: EdgeInsets.zero, // Remove default padding
+                  children: nodes.map((node) => _buildNode(node, 0)).toList(),
                 );
-              }
-              return ListView(
-                padding: EdgeInsets.zero, // Remove default padding
-                children: nodes.map((node) => _buildNode(node, 0)).toList(),
-              );
-            },
-            loading: () => const Center(child: CircularProgressIndicator()),
-            error: (err, stack) => Center(child: Text('Error: $err', style: const TextStyle(color: Colors.red))),
+              },
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (err, stack) => Center(child: Text('Error: $err', style: const TextStyle(color: Colors.red))),
+            ),
           ),
         ),
       ],
@@ -256,6 +235,54 @@ class _WorkspaceExplorerState extends ConsumerState<WorkspaceExplorer> {
     }
   }
 
+  void _showBackgroundMenu(BuildContext context, Offset position) async {
+    final RelativeRect positionRect = RelativeRect.fromLTRB(
+      position.dx,
+      position.dy,
+      position.dx,
+      position.dy,
+    );
+
+    // Get workspace root path
+    final rootPath = 'C:\\Users\\${Platform.environment['USERNAME']}\\Documents\\WeConnect';
+
+    final result = await showMenu<String>(
+      context: context,
+      position: positionRect,
+      color: const Color(0xFF2D2D2D),
+      elevation: 8,
+      items: const [
+        PopupMenuItem(
+          value: 'new_folder',
+          child: Text('New Folder', style: TextStyle(color: Colors.white)),
+        ),
+        PopupMenuItem(
+          value: 'new_service',
+          child: Text('New Service', style: TextStyle(color: Colors.white)),
+        ),
+        PopupMenuDivider(),
+        PopupMenuItem(
+          value: 'refresh',
+          child: Text('Refresh', style: TextStyle(color: Colors.white)),
+        ),
+      ],
+    );
+    
+    if (result == null) return;
+    
+    switch (result) {
+      case 'new_folder':
+        _createNew(rootPath, 'New Folder', isFolder: true);
+        break;
+      case 'new_service':
+        _createNew(rootPath, 'Service', ext: '.wc_service');
+        break;
+      case 'refresh':
+        ref.read(workspaceControllerProvider.notifier).refresh();
+        break;
+    }
+  }
+
   void _showContextMenu(BuildContext context, Offset position, FileSystemNode node) async {
     // Ensure the right-clicked item is selected
     _selectNode(node);
@@ -292,6 +319,11 @@ class _WorkspaceExplorerState extends ConsumerState<WorkspaceExplorer> {
           value: 'delete',
           child: Text('Delete', style: TextStyle(color: Colors.red)),
         ),
+        const PopupMenuDivider(),
+        const PopupMenuItem(
+          value: 'refresh',
+          child: Text('Refresh', style: TextStyle(color: Colors.white)),
+        ),
       ],
     );
     
@@ -309,6 +341,9 @@ class _WorkspaceExplorerState extends ConsumerState<WorkspaceExplorer> {
         break;
       case 'delete':
         _delete(node);
+        break;
+      case 'refresh':
+        ref.read(workspaceControllerProvider.notifier).refresh();
         break;
     }
   }

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -29,6 +30,13 @@ class _PresentationSlideListState extends ConsumerState<PresentationSlideList> {
   Widget build(BuildContext context) {
     final activeItem = ref.watch(activeEditorItemProvider);
     final activeProject = ref.watch(activeProjectProvider);
+
+    // Listen for file changes and load the project
+    ref.listen<File?>(activeFileProvider, (previous, next) async {
+      if (next != null && (previous == null || next.path != previous.path)) {
+        await _loadFile(next);
+      }
+    });
 
     return CallbackShortcuts(
       bindings: {
@@ -338,6 +346,42 @@ class _PresentationSlideListState extends ConsumerState<PresentationSlideList> {
           SnackBar(content: Text('Error saving: $e')),
         );
       }
+    }
+  }
+
+  Future<void> _loadFile(File file) async {
+    try {
+      final content = await file.readAsString();
+      if (content.isEmpty) {
+        // New empty file
+        final newProject = ServiceProject(title: 'New Service', items: []);
+        ref.read(activeProjectProvider.notifier).state = newProject;
+        ref.read(activeEditorItemProvider.notifier).state = null;
+        return;
+      }
+      
+      final json = jsonDecode(content);
+      final loadedProject = ServiceProject.fromJson(json);
+      ref.read(activeProjectProvider.notifier).state = loadedProject;
+      
+      // Clear stale selection if item doesn't exist in this project
+      final currentItem = ref.read(activeEditorItemProvider);
+      if (currentItem != null && !loadedProject.items.any((i) => i.id == currentItem.id)) {
+        ref.read(activeEditorItemProvider.notifier).state = null;
+      }
+      
+      // Auto-select first song if no valid selection
+      if (ref.read(activeEditorItemProvider) == null) {
+        final firstSong = loadedProject.items.firstWhere(
+          (i) => i.type == 'song', 
+          orElse: () => ServiceItem(id: '', title: '', type: '')
+        );
+        if (firstSong.id.isNotEmpty) {
+          ref.read(activeEditorItemProvider.notifier).state = firstSong;
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading file: $e');
     }
   }
 
