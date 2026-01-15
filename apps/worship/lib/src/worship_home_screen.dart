@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:core/core.dart';
 import 'package:models/models.dart';
 import 'package:ui_kit/ui_kit.dart';
+import 'profile/worship_profile_dashboard.dart'; // Added
 import 'musician_dashboard.dart';
 import 'branch_details_screen.dart';
 import 'service_details_screen.dart';
@@ -164,7 +165,7 @@ class _WorshipHomeScreenState extends State<WorshipHomeScreen> {
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => const CommonProfileScreen()),
+                MaterialPageRoute(builder: (_) => const WorshipProfileDashboard()),
               );
             },
           ),

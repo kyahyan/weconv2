@@ -1,8 +1,8 @@
-import 'package:core/core.dart';
 import 'package:flutter/material.dart';
-import 'package:models/models.dart';
-import 'package:ui_kit/ui_kit.dart';
-import 'lyrics_view.dart';
+import 'features/workspace/workspace_explorer.dart';
+import 'features/media/media_bin.dart';
+import 'features/editor/main_editor_area.dart';
+import 'features/online/online_service_panel.dart';
 
 class ProjectionControlScreen extends StatefulWidget {
   const ProjectionControlScreen({super.key});
@@ -12,154 +12,238 @@ class ProjectionControlScreen extends StatefulWidget {
 }
 
 class _ProjectionControlScreenState extends State<ProjectionControlScreen> {
-  final _serviceRepo = ServiceRepository();
-  final _songRepo = SongRepository();
-  
-  List<Service> _services = [];
-  Service? _selectedService;
-  List<Song> _songs = [];
-  Song? _selectedSong;
-  
-  // In a real app, this would be a second window or a separate route on a second screen.
-  // For this V2, we will simulate "Go Live" by navigating to a full screen view.
-  
-  @override
-  void initState() {
-    super.initState();
-    _fetchServices();
-  }
-  
-  Future<void> _fetchServices() async {
-    final now = DateTime.now();
-    // Fetch upcoming services
-    final start = now.subtract(const Duration(days: 1));
-    final end = now.add(const Duration(days: 14));
-    
-    final services = await _serviceRepo.getServices(start, end);
-    if (mounted) {
-      setState(() {
-        _services = services;
-        // Auto select first if available
-        if (_services.isNotEmpty) {
-          _onServiceSelected(_services.first);
-        }
-      });
-    }
-  }
-  
-  Future<void> _onServiceSelected(Service service) async {
-    setState(() {
-      _selectedService = service;
-      _selectedSong = null;
-    });
-    
-    final songs = await _songRepo.getSongsForService(service.id);
-    if (mounted) {
-      setState(() {
-        _songs = songs;
-      });
-    }
-  }
-
-  void _goLive() {
-    if (_selectedSong == null) return;
-    
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => LyricsView(text: _selectedSong!.content),
-      ),
-    );
-  }
+  int _selectedTabIndex = 0; 
+  double _bottomPanelHeight = 400.0;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Presentation Controller'),
-        actions: [
-            IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () => AuthService().signOut(),
+      body: Column(
+        children: [
+          // Top Menu Bar
+          Container(
+            height: 30,
+            color: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            alignment: Alignment.centerLeft,
+            child: Row(
+              children: [
+                _buildMenuText('File'),
+                const SizedBox(width: 16),
+                _buildMenuText('Edit'),
+                const SizedBox(width: 16),
+                _buildMenuText('Start'),
+                const SizedBox(width: 16),
+                _buildMenuText('Screens'),
+                const SizedBox(width: 16),
+                _buildMenuText('View'),
+                const SizedBox(width: 16),
+                _buildMenuText('Window'),
+                const Spacer(),
+                const Text('Live', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+              ],
+            ),
+          ),
+          
+          // Main Content
+          Expanded(
+            child: Container(
+              color: const Color(0xFF1E1E1E), // Dark background
+              padding: const EdgeInsets.all(4),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Main Content Area (Left + Middle merged sort of)
+                  Expanded(
+                    flex: 8, 
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final totalHeight = constraints.maxHeight;
+                        // Clamp value
+                        _bottomPanelHeight = _bottomPanelHeight.clamp(100.0, totalHeight - 100.0);
+                        
+                        // Calculated top height
+                        final topHeight = totalHeight - _bottomPanelHeight - 8; // 8 for divider/spacing
+
+                        return Column(
+                          children: [
+                            // Top Row: Workspace & Online
+                            SizedBox(
+                              height: topHeight > 0 ? topHeight : 0,
+                              child: Row(
+                                children: [
+                                  // Workspace/Library
+                                  Expanded(
+                                    flex: 3, 
+                                    child: WorkspaceExplorer(),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  // Online/Service
+                                  Expanded(
+                                    flex: 5,
+                                    child: Container(color: const Color(0xFF2D2D2D)), // Empty Placeholder
+                                  ),
+                                ],
+                              ),
+                            ),
+                            
+                            // Resizable Divider
+                            MouseRegion(
+                              cursor: SystemMouseCursors.resizeUpDown,
+                              child: GestureDetector(
+                                behavior: HitTestBehavior.translucent,
+                                onVerticalDragUpdate: (details) {
+                                  setState(() {
+                                    _bottomPanelHeight -= details.delta.dy;
+                                  });
+                                },
+                                child: Container(
+                                  height: 8,
+                                  color: const Color(0xFF1E1E1E), 
+                                  alignment: Alignment.center,
+                                  child: Container(
+                                    height: 2,
+                                    width: 40,
+                                    color: Colors.grey.withOpacity(0.3),
+                                  ),
+                                ),
+                              ),
+                            ),
+
+                            // Bottom Unified Panel (Slides + Editor + Bible + Media)
+                            SizedBox(
+                              height: _bottomPanelHeight,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF424242),
+                                  border: Border.all(color: Colors.white24, width: 1),
+                                ),
+                                padding: const EdgeInsets.all(8),
+                                child: Column(
+                                  children: [
+                                    // Header (Tabs)
+                                    Row(
+                                      children: [
+                                        _buildTabItem('Order of Service', 0),
+                                        const SizedBox(width: 16),
+                                        _buildTabItem('Bible', 1),
+                                        const SizedBox(width: 16),
+                                        _buildTabItem('Media', 2),
+                                        const SizedBox(width: 16),
+                                        _buildTabItem('Online', 3),
+                                        const Spacer(),
+                                        const Text('Live', style: TextStyle(color: Colors.white, fontSize: 13)),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Expanded(
+                                      child: _buildBottomPanelContent(),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        );
+                      }
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  
+                  // Right Sidebar
+                  Expanded(
+                    flex: 3,
+                    child: Column(
+                      children: [
+                        // Preview
+                        Expanded(
+                          flex: 3, 
+                          child: _buildPanel(
+                            title: '', 
+                            child: const Center(child: Text('Preview', style: TextStyle(color: Colors.grey, fontSize: 20)))
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        // Notes
+                        Expanded(
+                          flex: 2,
+                          child: _buildPanel(
+                            title: '', 
+                            child: const Center(child: Text('Notes', style: TextStyle(color: Colors.grey, fontSize: 20)))
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ],
       ),
-      body: Row(
+    );
+  }
+
+  Widget _buildTabItem(String title, int index) {
+    final isSelected = _selectedTabIndex == index;
+    return InkWell(
+      onTap: () => setState(() => _selectedTabIndex = index),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: isSelected 
+          ? BoxDecoration(color: Colors.blueAccent.withOpacity(0.2), borderRadius: BorderRadius.circular(4)) 
+          : null,
+        child: Text(
+          title, 
+          style: TextStyle(
+            color: isSelected ? Colors.blueAccent : Colors.white70,
+            fontSize: 13,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal
+          )
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBottomPanelContent() {
+    switch (_selectedTabIndex) {
+      case 0: // Order of Service
+        return const MainEditorArea();
+      case 1: // Bible
+        return const Center(child: Text('Bible View', style: TextStyle(color: Colors.white54)));
+      case 2: // Media
+        return MediaBin();
+      case 3: // Online
+        return OnlinePanel();
+      default:
+        return const SizedBox();
+    }
+  }
+
+  Widget _buildMenuText(String text) {
+    return Text(text, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.normal));
+  }
+  
+  Widget _buildPanel({required String title, String? trailing, Widget? child}) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF424242), // Dark grey panel
+        border: Border.all(color: Colors.white24, width: 1),
+      ),
+      padding: const EdgeInsets.all(8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Left Pane: Services & Songs
-          Expanded(
-            flex: 1,
-            child: Column(
-              children: [
-                // Service Selector
-                DropdownButton<Service>(
-                  value: _selectedService,
-                  hint: const Text('Select Service'),
-                  isExpanded: true,
-                  items: _services.map((s) {
-                    return DropdownMenuItem(
-                      value: s,
-                      child: Text(s.title),
-                    );
-                  }).toList(),
-                  onChanged: (s) => _onServiceSelected(s!),
-                ),
-                const Divider(),
-                // Song List
-                Expanded(
-                  child: ListView.builder(
-                    itemCount: _songs.length,
-                    itemBuilder: (context, index) {
-                      final song = _songs[index];
-                      final isSelected = song == _selectedSong;
-                      return ListTile(
-                        selected: isSelected,
-                        title: Text(song.title),
-                        onTap: () {
-                          setState(() {
-                            _selectedSong = song;
-                          });
-                        },
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(title, style: const TextStyle(color: Colors.white, fontSize: 13)),
+              if (trailing != null)
+                Text(trailing, style: const TextStyle(color: Colors.white, fontSize: 13)),
+            ],
           ),
-          const VerticalDivider(width: 1),
-          // Right Pane: Preview
-          Expanded(
-            flex: 2,
-            child: Column(
-              children: [
-                Expanded(
-                  child: Container(
-                    color: Colors.black,
-                    width: double.infinity,
-                    alignment: Alignment.center,
-                    padding: const EdgeInsets.all(20),
-                    child: Text(
-                      _selectedSong?.content ?? 'Select a song to preview',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.white, fontSize: 24),
-                    ),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: ElevatedButton.icon(
-                    onPressed: _selectedSong != null ? _goLive : null,
-                    icon: const Icon(Icons.tv),
-                    label: const Text('GO LIVE (Fullscreen)'),
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
+          const SizedBox(height: 8),
+          if (child != null) Expanded(child: child),
         ],
       ),
     );

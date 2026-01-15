@@ -7,7 +7,14 @@ import 'music_stand_screen.dart';
 import 'musician_dashboard.dart';
 
 class ServiceListScreen extends StatefulWidget {
-  const ServiceListScreen({super.key});
+  final Function(Service)? onServiceTap;
+  final bool onlyAssigned;
+
+  const ServiceListScreen({
+    super.key, 
+    this.onServiceTap,
+    this.onlyAssigned = false,
+  });
 
   @override
   State<ServiceListScreen> createState() => _ServiceListScreenState();
@@ -27,16 +34,37 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
   }
 
   Future<void> _fetchServices() async {
-    // Determine date range: e.g., next 30 days and past 7 days
-    final now = DateTime.now();
-    final start = now.subtract(const Duration(days: 7));
-    final end = now.add(const Duration(days: 30));
-
-    // Check roles
-    _checkRole();
+    // Check roles and load Musician status regardless
+    await _checkRole();
 
     try {
-      final services = await _serviceRepo.getServices(start, end);
+      List<Service> services;
+      
+      if (widget.onlyAssigned) {
+         final orgs = await _orgRepo.getUserOrganizations();
+         final memberIds = <String>[];
+         for (var org in orgs) {
+            final members = await _orgRepo.getUserBranchData(org.id);
+            print('DEBUG: Org ${org.name} members: $members');
+            for (var m in members) {
+               final mid = m['id']?.toString();
+               if (mid != null && mid.isNotEmpty) {
+                 memberIds.add(mid);
+               }
+            }
+         }
+         services = await _serviceRepo.getAssignedServices(
+             memberIds: memberIds, 
+             profileId: AuthService().currentUser?.id ?? ''
+         );
+      } else {
+        // Determine date range: e.g., next 30 days and past 7 days
+        final now = DateTime.now();
+        final start = now.subtract(const Duration(days: 7));
+        final end = now.add(const Duration(days: 30));
+        services = await _serviceRepo.getServices(start, end);
+      }
+
       if (mounted) {
         setState(() {
           _services = services;
@@ -84,7 +112,7 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
       appBar: AppBar(
         title: const Text('Worship Setlists'),
         actions: [
-          if (_isMusician)
+          if (_isMusician && widget.onServiceTap == null)
             IconButton(
               icon: const Icon(Icons.piano, color: Colors.deepPurple),
               tooltip: 'Musician Dashboard',
@@ -95,10 +123,11 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
                 );
               },
             ),
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () => AuthService().signOut(),
-          ),
+          if (widget.onServiceTap == null)
+             IconButton(
+              icon: const Icon(Icons.logout),
+              onPressed: () => AuthService().signOut(),
+            ),
         ],
       ),
       body: _isLoading
@@ -114,12 +143,16 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
                       subtitle: Text(DateFormat('EEEE, MMM d @ h:mm a').format(service.date)),
                       trailing: const Icon(Icons.music_note),
                       onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => MusicStandScreen(service: service),
-                          ),
-                        );
+                        if (widget.onServiceTap != null) {
+                          widget.onServiceTap!(service);
+                        } else {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => MusicStandScreen(service: service),
+                            ),
+                          );
+                        }
                       },
                     );
                   },

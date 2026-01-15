@@ -27,6 +27,56 @@ class ServiceRepository {
     return (response as List).map((e) => Service.fromJson(e)).toList();
   }
 
+  Future<List<Service>> getAssignedServices({required List<String> memberIds, required String profileId}) async {
+    final uniqueServices = <String, Service>{};
+
+    // 1. Fetch by Assignments
+    if (memberIds.isNotEmpty) {
+      final response = await _client
+          .from('services')
+          .select('*, service_assignments!inner(member_id)')
+          .filter('service_assignments.member_id', 'in', memberIds)
+          .order('date');
+
+      print('DEBUG: getAssignedServices (assignments) response: $response');
+      for (var item in response as List) {
+         try {
+           final s = Service.fromJson(item);
+           uniqueServices[s.id] = s;
+         } catch (e) {
+           print('ERROR parsing service: $e');
+         }
+      }
+    }
+
+    // 2. Fetch by Worship Leader ID
+    if (profileId.isNotEmpty) {
+       try {
+         final response = await _client
+             .from('services')
+             .select()
+             .eq('worship_leader_id', profileId)
+             .order('date');
+         
+         print('DEBUG: getAssignedServices (leader) response: $response');
+         for (var item in response as List) {
+            try {
+               final s = Service.fromJson(item);
+               uniqueServices[s.id] = s;
+            } catch (e) {
+               print('ERROR parsing leader service: $e');
+            }
+         }
+       } catch (e) {
+         print('ERROR fetching leader services: $e');
+       }
+    }
+
+    final list = uniqueServices.values.toList();
+    list.sort((a,b) => a.date.compareTo(b.date));
+    return list;
+  }
+
   Future<Service?> getServiceById(String id) async {
     final response = await _client
         .from('services')

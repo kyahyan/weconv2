@@ -366,10 +366,10 @@ class OrganizationRepository {
         // Specific Ministry Role
         // Check case-insensitive to be safe? Or strict? The implementation in UI is capitalized 'Secretary' usually.
         // Let's do strict contains similar to how we save it.
-        if (ministryRoles.contains('Secretary')) return true;
+        if (ministryRoles.contains('Organizer')) return true;
         
         // Also check case-insensitive match just in case
-        if (ministryRoles.any((r) => r.toLowerCase() == 'secretary')) return true;
+        if (ministryRoles.any((r) => r.toLowerCase() == 'organizer')) return true;
       }
       
       return false;

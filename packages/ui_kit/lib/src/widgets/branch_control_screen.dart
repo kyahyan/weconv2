@@ -125,7 +125,8 @@ class _BranchControlScreenState extends State<BranchControlScreen> {
     // 1. Compile Suggestions (Defaults + Used Roles in this Branch)
     final Set<String> allRoles = {
       'Attender', 'Leader', 'Musician', 'Ushering', 'Multimedia', 
-      'Kids Teacher', 'Worship Leader', 'Singer', 'Greeter'
+      'Kids Teacher', 'Worship Leader', 'Singer', 'Greeter',
+      'Organizer', 'Operator'
     };
     
     // Add roles currently used by other members
@@ -173,6 +174,65 @@ class _BranchControlScreenState extends State<BranchControlScreen> {
                             }
                           } else {
                             currentRoles.remove('Musician');
+                          }
+                        });
+                      },
+                      activeColor: Colors.deepPurple,
+                      dense: true,
+                       controlAffinity: ListTileControlAffinity.leading,
+                    ),
+                    const Divider(),
+                    // Operator & Organizer Checkboxes
+                    CheckboxListTile(
+                      title: const Text('Operator'),
+                      subtitle: const Text('Assign for Presentation App Access'),
+                      value: currentRoles.contains('Operator'),
+                      onChanged: (bool? value) {
+                        setStateDialog(() {
+                          if (value == true) {
+                            if (!currentRoles.contains('Operator')) {
+                              currentRoles.add('Operator');
+                            }
+                          } else {
+                            currentRoles.remove('Operator');
+                          }
+                        });
+                      },
+                      activeColor: Colors.deepPurple,
+                      dense: true,
+                      controlAffinity: ListTileControlAffinity.leading,
+                    ),
+                    CheckboxListTile(
+                      title: const Text('Organizer'),
+                      subtitle: const Text('Assign for Planning App Access'),
+                      value: currentRoles.contains('Organizer'),
+                      onChanged: (bool? value) {
+                        setStateDialog(() {
+                          if (value == true) {
+                            if (!currentRoles.contains('Organizer')) {
+                              currentRoles.add('Organizer');
+                            }
+                          } else {
+                            currentRoles.remove('Organizer');
+                          }
+                        });
+                      },
+                      activeColor: Colors.deepPurple,
+                      dense: true,
+                      controlAffinity: ListTileControlAffinity.leading,
+                    ),
+                    CheckboxListTile(
+                      title: const Text('Usher'),
+                      subtitle: const Text('Assign to Ushering Team'),
+                      value: currentRoles.contains('Ushering'),
+                      onChanged: (bool? value) {
+                        setStateDialog(() {
+                          if (value == true) {
+                            if (!currentRoles.contains('Ushering')) {
+                              currentRoles.add('Ushering');
+                            }
+                          } else {
+                            currentRoles.remove('Ushering');
                           }
                         });
                       },

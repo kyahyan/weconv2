@@ -66,7 +66,7 @@ class _AuthGateState extends State<AuthGate> {
                      children: [
                        const Text("Access Denied", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
                        const SizedBox(height: 16),
-                       const Text("You must have the 'Secretary' Ministry Role to access this app."),
+                       const Text("You must have the 'Organizer' Ministry Role to access this app."),
                        const SizedBox(height: 32),
                        ElevatedButton(
                          onPressed: () => _authService.signOut(),

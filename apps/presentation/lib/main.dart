@@ -1,13 +1,42 @@
 import 'package:core/core.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ui_kit/ui_kit.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+
 import 'src/projection_control_screen.dart';
 
-void main() async {
+import 'package:collection/collection.dart';
+import 'package:desktop_multi_window/desktop_multi_window.dart';
+import 'src/projector_screen.dart';
+
+import 'package:window_manager/window_manager.dart';
+
+void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
-  await SupabaseConfig.init();
-  runApp(const MyApp());
+  
+  if (args.firstOrNull == 'multi_window') {
+    final windowId = int.parse(args[1]);
+    runApp(ProjectorScreen(windowId: windowId));
+  } else {
+    await SupabaseConfig.init();
+    await windowManager.ensureInitialized();
+
+    WindowOptions windowOptions = const WindowOptions(
+      minimumSize: Size(1024, 768),
+      center: true,
+      backgroundColor: Colors.transparent,
+      skipTaskbar: false,
+      titleBarStyle: TitleBarStyle.normal,
+    );
+    
+    windowManager.waitUntilReadyToShow(windowOptions, () async {
+      await windowManager.show();
+      await windowManager.focus();
+      await windowManager.maximize();
+    });
+
+    runApp(const ProviderScope(child: MyApp()));
+  }
 }
 
 class MyApp extends StatelessWidget {
@@ -21,38 +50,8 @@ class MyApp extends StatelessWidget {
       home: MaterialApp(
         title: 'Presentation',
         theme: AppTheme.darkTheme, // Default to dark for presentation
-        home: const AuthWrapper(),
+        home: const ProjectionControlScreen(),
       ),
-    );
-  }
-}
-
-class AuthWrapper extends StatelessWidget {
-  const AuthWrapper({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<AuthState>(
-      stream: Supabase.instance.client.auth.onAuthStateChange,
-      builder: (context, snapshot) {
-        final session = snapshot.data?.session;
-        
-        // Also check if current user is already logged in (for initial load)
-        final currentUser = Supabase.instance.client.auth.currentUser;
-
-        if (session != null || currentUser != null) {
-          return const ProjectionControlScreen();
-        }
-
-        return LoginScreen(
-          onLogin: (email, password) async {
-             await AuthService().signIn(email: email, password: password);
-          },
-          onSignUp: (email, password) async {
-             await AuthService().signUp(email: email, password: password);
-          },
-        );
-      },
     );
   }
 }
