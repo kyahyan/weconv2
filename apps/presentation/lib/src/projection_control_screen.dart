@@ -1,22 +1,29 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'features/screens/models/screen_model.dart';
+import 'features/screens/repositories/screen_repository.dart';
+import 'features/screens/services/projection_window_manager.dart';
 import 'features/workspace/workspace_explorer.dart';
 import 'features/media/media_bin.dart';
 import 'features/editor/main_editor_area.dart';
 import 'features/editor/presentation_slide_list.dart';
 import 'features/editor/presentation_editor_controls.dart';
 import 'features/online/online_service_panel.dart';
+import 'features/screens/ui/screen_configuration_dialog.dart';
+import 'features/bible/bible_panel.dart';
 
-class ProjectionControlScreen extends StatefulWidget {
+class ProjectionControlScreen extends ConsumerStatefulWidget {
   const ProjectionControlScreen({super.key});
 
   @override
-  State<ProjectionControlScreen> createState() => _ProjectionControlScreenState();
+  ConsumerState<ProjectionControlScreen> createState() => _ProjectionControlScreenState();
 }
 
-class _ProjectionControlScreenState extends State<ProjectionControlScreen> {
+class _ProjectionControlScreenState extends ConsumerState<ProjectionControlScreen> {
   int _selectedTabIndex = 0; 
   double _bottomPanelHeight = 400.0;
   double _workspaceWidth = 300.0;
+  double _notesHeight = 200.0;
   int _selectedSlideIndex = 0;
 
   @override
@@ -38,13 +45,34 @@ class _ProjectionControlScreenState extends State<ProjectionControlScreen> {
                 const SizedBox(width: 16),
                 _buildMenuText('Start'),
                 const SizedBox(width: 16),
-                _buildMenuText('Screens'),
+                PopupMenuButton<String>(
+                  child: Row(
+                    children: [
+                      const Text('Screens', style: TextStyle(color: Colors.black, fontWeight: FontWeight.normal)),
+                      const Icon(Icons.arrow_drop_down, color: Colors.black, size: 16),
+                    ],
+                  ),
+                  onSelected: (value) {
+                    if (value == 'configure') {
+                      showDialog(
+                        context: context,
+                        builder: (context) => const ScreenConfigurationDialog(),
+                      );
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    const PopupMenuItem(
+                      value: 'configure',
+                      child: Text('Configure Screens...'),
+                    ),
+                  ],
+                ),
                 const SizedBox(width: 16),
                 _buildMenuText('View'),
                 const SizedBox(width: 16),
                 _buildMenuText('Window'),
                 const Spacer(),
-                const Text('Live', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                // const Text('Live', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
               ],
             ),
           ),
@@ -200,14 +228,17 @@ class _ProjectionControlScreenState extends State<ProjectionControlScreen> {
                                         _buildTabItem('Main', 0),
                                         const SizedBox(width: 16),
                                         _buildTabItem('Editor', 1),
+                                        // Removed bible tab here
                                         const SizedBox(width: 16),
-                                        _buildTabItem('Bible', 2),
-                                        const SizedBox(width: 16),
-                                        _buildTabItem('Media', 3),
+                                        _buildTabItem('Media', 3), // Keep index but it might be confusing if we don't reorder. Let's keep logic simple.
                                         const SizedBox(width: 16),
                                         _buildTabItem('Online', 4),
                                         const Spacer(),
-                                        const Text('Live', style: TextStyle(color: Colors.white, fontSize: 13)),
+                                        // Toggles
+                                        _buildTypeToggle(ref, 'Audience', ScreenType.audience),
+                                        const SizedBox(width: 16),
+                                        _buildTypeToggle(ref, 'Stage', ScreenType.stage),
+                                        const SizedBox(width: 16),
                                       ],
                                     ),
                                     const SizedBox(height: 8),
@@ -228,26 +259,56 @@ class _ProjectionControlScreenState extends State<ProjectionControlScreen> {
                   // Right Sidebar
                   Expanded(
                     flex: 3,
-                    child: Column(
-                      children: [
-                        // Preview
-                        Expanded(
-                          flex: 3, 
-                          child: _buildPanel(
-                            title: '', 
-                            child: const Center(child: Text('Preview', style: TextStyle(color: Colors.grey, fontSize: 20)))
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        // Notes
-                        Expanded(
-                          flex: 2,
-                          child: _buildPanel(
-                            title: '', 
-                            child: const Center(child: Text('Notes', style: TextStyle(color: Colors.grey, fontSize: 20)))
-                          ),
-                        ),
-                      ],
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                         final totalHeight = constraints.maxHeight;
+                         // Clamp notes height to safe limits
+                         _notesHeight = _notesHeight.clamp(50.0, totalHeight - 100.0);
+                         
+                         return Column(
+                           children: [
+                             // Bible Panel (Top Right)
+                             Expanded(
+                               child: const BiblePanel(),
+                             ),
+                             
+                             // Resizable Divider for Notes
+                             MouseRegion(
+                               cursor: SystemMouseCursors.resizeUpDown,
+                               child: GestureDetector(
+                                 behavior: HitTestBehavior.translucent,
+                                 onVerticalDragUpdate: (details) {
+                                   setState(() {
+                                     // Dragging down decreases notes height (because it's at bottom)
+                                     // Wait, dragging DOWN increases Top, decreases Bottom.
+                                     // So dy > 0 means move down -> notes smaller.
+                                     _notesHeight -= details.delta.dy;
+                                   });
+                                 },
+                                 child: Container(
+                                   height: 8,
+                                   color: const Color(0xFF1E1E1E), 
+                                   alignment: Alignment.center,
+                                   child: Container(
+                                     height: 2,
+                                     width: 40,
+                                     color: Colors.grey.withOpacity(0.3),
+                                   ),
+                                 ),
+                               ),
+                             ),
+
+                             // Notes (Bottom Right)
+                             SizedBox(
+                               height: _notesHeight,
+                               child: _buildPanel(
+                                 title: 'Notes', 
+                                 child: const Center(child: Text('Notes', style: TextStyle(color: Colors.grey, fontSize: 20)))
+                               ),
+                             ),
+                           ],
+                         );
+                      }
                     ),
                   ),
                 ],
@@ -258,8 +319,7 @@ class _ProjectionControlScreenState extends State<ProjectionControlScreen> {
       ),
     );
   }
-
-  Widget _buildTabItem(String title, int index) {
+    Widget _buildTabItem(String title, int index) {
     final isSelected = _selectedTabIndex == index;
     return InkWell(
       onTap: () => setState(() => _selectedTabIndex = index),
@@ -287,7 +347,17 @@ class _ProjectionControlScreenState extends State<ProjectionControlScreen> {
       case 1: // Editor
         return PresentationEditorControls(selectedSlideIndex: _selectedSlideIndex);
       case 2: // Bible
-        return const Center(child: Text('Bible View', style: TextStyle(color: Colors.white54)));
+        // Bible is now moved to the right panel, so this index (if we kept it 2) would be Media. 
+        // But in the tabs above we removed index 2 (Bible).
+        // Let's re-align the indices to match UI: Main=0, Editor=1, Media=3, Online=4. 
+        // Wait, the indices in the tabs were:
+        // _buildTabItem('Main', 0),
+        // _buildTabItem('Editor', 1),
+        // _buildTabItem('Media', 3), 
+        // _buildTabItem('Online', 4),
+        // So we strictly follow those.
+        // What about index 2? It's gone.
+        return MediaBin(); // Fallback or Error? 
       case 3: // Media
         return MediaBin();
       case 4: // Online
@@ -312,17 +382,69 @@ class _ProjectionControlScreenState extends State<ProjectionControlScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(title, style: const TextStyle(color: Colors.white, fontSize: 13)),
-              if (trailing != null)
-                Text(trailing, style: const TextStyle(color: Colors.white, fontSize: 13)),
-            ],
+             mainAxisAlignment: MainAxisAlignment.spaceBetween,
+             children: [
+               if (title.isNotEmpty) Text(title, style: const TextStyle(color: Colors.white, fontSize: 13)),
+               if (trailing != null) Text(trailing, style: const TextStyle(color: Colors.white, fontSize: 13)),
+             ],
           ),
-          const SizedBox(height: 8),
+          if (title.isNotEmpty) const SizedBox(height: 8),
           if (child != null) Expanded(child: child),
         ],
       ),
     );
   }
+
+  Widget _buildTypeToggle(WidgetRef ref, String label, ScreenType type) {
+     final activeWindows = ref.watch(projectionWindowManagerProvider);
+     final screens = ref.watch(screenRepositoryProvider);
+     
+     // Find relevant screen for this type
+     final screen = screens.where((s) => s.type == type).firstOrNull;
+     
+     final isConnected = screen != null;
+     final isOpen = isConnected && activeWindows.containsKey(screen!.id);
+     
+     return InkWell(
+        onTap: () {
+           if (!isConnected) {
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No $label screen configured.')));
+              return;
+           }
+           
+           if (isOpen) {
+              ref.read(projectionWindowManagerProvider.notifier).closeDisplay(screen!.id);
+           } else {
+              ref.read(projectionWindowManagerProvider.notifier).openDisplay(screen!);
+           }
+        },
+        child: Column(
+           mainAxisSize: MainAxisSize.min,
+           children: [
+              Container(
+                width: 12,
+                height: 12,
+                decoration: BoxDecoration(
+                   shape: BoxShape.circle,
+                   color: Colors.transparent,
+                   border: Border.all(color: Colors.redAccent, width: 2),
+                ),
+                child: isOpen ? Center(
+                   child: Container(
+                      width: 6,
+                      height: 6,
+                      decoration: const BoxDecoration(
+                         shape: BoxShape.circle,
+                         color: Colors.redAccent,
+                      ),
+                   ),
+                ) : null,
+              ),
+              const SizedBox(height: 4),
+              Text(label, style: const TextStyle(color: Colors.white, fontSize: 11)),
+           ],
+        ),
+     );
+  }
 }
+

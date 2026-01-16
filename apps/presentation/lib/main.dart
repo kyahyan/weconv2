@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:core/core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -13,10 +14,19 @@ import 'package:window_manager/window_manager.dart';
 
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+  print('MAIN LAUNCHED WITH ARGS: $args');
   
   if (args.firstOrNull == 'multi_window') {
+    print('Starting Secondary Window...');
     final windowId = int.parse(args[1]);
-    runApp(ProjectorScreen(windowId: windowId));
+    final argument = args[2].isEmpty ? const <String, dynamic>{} : jsonDecode(args[2]) as Map<String, dynamic>;
+    
+    // window_manager is handled natively in C++ for secondary windows now
+    
+    runApp(ProjectorScreen(
+      windowId: windowId, 
+      args: argument,
+    ));
   } else {
     await SupabaseConfig.init();
     await windowManager.ensureInitialized();

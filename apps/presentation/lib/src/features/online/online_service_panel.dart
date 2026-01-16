@@ -182,47 +182,119 @@ class OnlinePanel extends ConsumerWidget {
   }
 }
 
-class _SongsList extends ConsumerWidget {
+class _SongsList extends ConsumerStatefulWidget {
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_SongsList> createState() => _SongsListState();
+}
+
+class _SongsListState extends ConsumerState<_SongsList> {
+  bool _isSyncing = false;
+
+  Future<void> _syncAllSongs() async {
+    final songs = ref.read(onlineSongsProvider).valueOrNull;
+    if (songs == null || songs.isEmpty) return;
+
+    setState(() => _isSyncing = true);
+
+    try {
+      final importService = ref.read(onlineImportProvider);
+      final count = await importService.syncAllSongs(songs);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Synced $count songs to local storage')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSyncing = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final songsAsync = ref.watch(onlineSongsProvider);
 
-    return songsAsync.when(
-      data: (songs) {
-        if (songs.isEmpty) {
-          return const Center(child: Text('No songs found.', style: TextStyle(color: Colors.white54)));
-        }
-        return ListView.builder(
-          padding: const EdgeInsets.all(8),
-          itemCount: songs.length,
-          itemBuilder: (context, index) {
-            final song = songs[index];
-            return Card(
-              color: const Color(0xFF383838),
-              margin: const EdgeInsets.only(bottom: 8),
-              child: ExpansionTile(
-                title: Text(song.title, style: const TextStyle(color: Colors.white)),
-                subtitle: Text(song.artist, style: const TextStyle(color: Colors.white54, fontSize: 12)),
-                iconColor: Colors.blue,
-                collapsedIconColor: Colors.white54,
-                children: [
-                   Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
-                    color: const Color(0xFF2D2D2D),
-                    child: SelectableText( // Use SelectableText for lyrics copy-paste
-                      song.content.isEmpty ? 'No lyrics available' : song.content,
-                      style: const TextStyle(color: Colors.white70),
-                    ),
-                  ),
-                ],
+    return Column(
+      children: [
+        // Sync All button header
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          color: const Color(0xFF1E1E1E),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                songsAsync.when(
+                  data: (songs) => '${songs.length} songs',
+                  loading: () => 'Loading...',
+                  error: (_, __) => 'Error',
+                ),
+                style: const TextStyle(color: Colors.white54, fontSize: 12),
               ),
-            );
-          },
-        );
-      },
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (err, stack) => Center(child: Text('Error: $err', style: const TextStyle(color: Colors.red))),
+              _isSyncing
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : TextButton.icon(
+                      onPressed: songsAsync.hasValue ? _syncAllSongs : null,
+                      icon: const Icon(Icons.download, size: 16),
+                      label: const Text('Sync All'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.blue,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                      ),
+                    ),
+            ],
+          ),
+        ),
+        // Songs list
+        Expanded(
+          child: songsAsync.when(
+            data: (songs) {
+              if (songs.isEmpty) {
+                return const Center(child: Text('No songs found.', style: TextStyle(color: Colors.white54)));
+              }
+              return ListView.builder(
+                padding: const EdgeInsets.all(8),
+                itemCount: songs.length,
+                itemBuilder: (context, index) {
+                  final song = songs[index];
+                  return Card(
+                    color: const Color(0xFF383838),
+                    margin: const EdgeInsets.only(bottom: 8),
+                    child: ExpansionTile(
+                      title: Text(song.title, style: const TextStyle(color: Colors.white)),
+                      subtitle: Text(song.artist, style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                      iconColor: Colors.blue,
+                      collapsedIconColor: Colors.white54,
+                      children: [
+                         Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(16),
+                          color: const Color(0xFF2D2D2D),
+                          child: SelectableText( // Use SelectableText for lyrics copy-paste
+                            song.content.isEmpty ? 'No lyrics available' : song.content,
+                            style: const TextStyle(color: Colors.white70),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              );
+            },
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (err, stack) => Center(child: Text('Error: $err', style: const TextStyle(color: Colors.red))),
+          ),
+        ),
+      ],
     );
   }
 }

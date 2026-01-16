@@ -5,13 +5,43 @@ class PresentationSlide {
   final String content;
   final String label;
   final int color; // ARGB int
+  final bool isBold;
+  final bool isItalic;
+  final bool isUnderlined;
+  final int alignment; // 0=left, 1=center, 2=right
 
   PresentationSlide({
     required this.id,
     required this.content,
     required this.label,
     required this.color,
+    this.isBold = false,
+    this.isItalic = false,
+    this.isUnderlined = false,
+    this.alignment = 1, // Default Center
   });
+
+  PresentationSlide copyWith({
+    String? id,
+    String? content,
+    String? label,
+    int? color,
+    bool? isBold,
+    bool? isItalic,
+    bool? isUnderlined,
+    int? alignment,
+  }) {
+    return PresentationSlide(
+      id: id ?? this.id,
+      content: content ?? this.content,
+      label: label ?? this.label,
+      color: color ?? this.color,
+      isBold: isBold ?? this.isBold,
+      isItalic: isItalic ?? this.isItalic,
+      isUnderlined: isUnderlined ?? this.isUnderlined,
+      alignment: alignment ?? this.alignment,
+    );
+  }
 
   Map<String, dynamic> toJson() {
     return {
@@ -19,6 +49,10 @@ class PresentationSlide {
       'content': content,
       'label': label,
       'color': color,
+      'isBold': isBold,
+      'isItalic': isItalic,
+      'isUnderlined': isUnderlined,
+      'alignment': alignment,
     };
   }
 
@@ -28,6 +62,10 @@ class PresentationSlide {
       content: json['content'] as String? ?? '',
       label: json['label'] as String? ?? '',
       color: json['color'] as int? ?? 0xFF000000,
+      isBold: json['isBold'] as bool? ?? false,
+      isItalic: json['isItalic'] as bool? ?? false,
+      isUnderlined: json['isUnderlined'] as bool? ?? false,
+      alignment: json['alignment'] as int? ?? 1,
     );
   }
 }

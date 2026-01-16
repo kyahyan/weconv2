@@ -3,9 +3,12 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 import 'editor_provider.dart';
 import '../service/service_model.dart';
+import '../online/online_providers.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'lyrics_parser.dart';
 
@@ -157,9 +160,7 @@ class _PresentationSlideListState extends ConsumerState<PresentationSlideList> {
 
           // Main Slide Area
           Expanded(
-            child: activeItem == null 
-             ? const Center(child: Text('No Song Selected', style: TextStyle(color: Colors.white24)))
-             : Container(
+            child: Container(
                  padding: const EdgeInsets.all(8),
                  child: Column(
                    crossAxisAlignment: CrossAxisAlignment.start,
@@ -171,13 +172,24 @@ class _PresentationSlideListState extends ConsumerState<PresentationSlideList> {
                             Expanded(
                               child: Row(
                                 children: [
-                                  Text(
-                                     activeItem.title,
-                                     style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                                   ),
-                                   const SizedBox(width: 8),
-                                   if (activeItem.artist != null)
-                                     Text('(${activeItem.artist})', style: const TextStyle(color: Colors.grey)),
+                                  // Search Songs Button
+                                  IconButton(
+                                    icon: const Icon(LucideIcons.search, size: 18, color: Colors.white70),
+                                    tooltip: 'Search Songs to Add',
+                                    onPressed: () => _showSongSearchDialog(context),
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  if (activeItem != null) ...[
+                                    Text(
+                                       activeItem.title,
+                                       style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                                     ),
+                                     const SizedBox(width: 8),
+                                     if (activeItem.artist != null)
+                                       Text('(${activeItem.artist})', style: const TextStyle(color: Colors.grey)),
+                                  ],
                                 ],
                               ),
                             ),
@@ -210,7 +222,9 @@ class _PresentationSlideListState extends ConsumerState<PresentationSlideList> {
                        ),
                      ),
                      Expanded(
-                       child: GridView.builder(
+                       child: activeItem == null
+                        ? const Center(child: Text('No Song Selected', style: TextStyle(color: Colors.white24)))
+                        : GridView.builder(
                          padding: const EdgeInsets.all(8),
                          gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
                            maxCrossAxisExtent: _slideWidth,
@@ -254,6 +268,13 @@ class _PresentationSlideListState extends ConsumerState<PresentationSlideList> {
                                  onTap: () {
                                     setState(() => _selectedIndex = index);
                                     widget.onSlideSelected(index);
+                                    ref.read(liveSlideContentProvider.notifier).state = LiveSlideData(
+                                        content: slide.content,
+                                        isBold: slide.isBold,
+                                        isItalic: slide.isItalic,
+                                        isUnderlined: slide.isUnderlined,
+                                        alignment: slide.alignment,
+                                    );
                                  },
                                  onSecondaryTapUp: (details) {
                                     _showContextMenu(context, details.globalPosition, index, slide);
@@ -399,6 +420,73 @@ class _PresentationSlideListState extends ConsumerState<PresentationSlideList> {
         final updatedProject = ServiceProject(title: currentProject.title, items: newItems);
         ref.read(activeProjectProvider.notifier).state = updatedProject;
      }
+  }
+
+  Future<List<OnlineSong>> _loadLocalSongs() async {
+    try {
+      final docsDir = await getApplicationDocumentsDirectory();
+      final songsFile = File(p.join(docsDir.path, 'WeConnect', 'Assets', 'songs.json'));
+      
+      if (!await songsFile.exists()) {
+        return [];
+      }
+      
+      final content = await songsFile.readAsString();
+      final List<dynamic> jsonList = jsonDecode(content);
+      return jsonList.map((json) => OnlineSong.fromJson(json)).toList();
+    } catch (e) {
+      debugPrint('Error loading local songs: $e');
+      return [];
+    }
+  }
+
+  Future<void> _showSongSearchDialog(BuildContext context) async {
+    final songs = await _loadLocalSongs();
+    
+    if (songs.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No songs found. Sync songs from Online tab first.')),
+        );
+      }
+      return;
+    }
+
+    if (!mounted) return;
+
+    await showDialog(
+      context: context,
+      builder: (context) => _SongSearchDialog(
+        songs: songs,
+        onSongSelected: (song) => _addSongToService(song),
+      ),
+    );
+  }
+
+  void _addSongToService(OnlineSong song) {
+    final currentProject = ref.read(activeProjectProvider);
+    if (currentProject == null) return;
+
+    // Parse lyrics to create slides
+    final slides = LyricsParser.parse(song.content);
+
+    final newItem = ServiceItem(
+      id: _uuid.v4(),
+      title: song.title,
+      type: 'song',
+      artist: song.artist,
+      slides: slides,
+    );
+
+    final updatedItems = [...currentProject.items, newItem];
+    final updatedProject = ServiceProject(title: currentProject.title, items: updatedItems);
+    
+    ref.read(activeProjectProvider.notifier).state = updatedProject;
+    ref.read(activeEditorItemProvider.notifier).state = newItem;
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Added "${song.title}" to service')),
+    );
   }
 
   void _addSlide() {
@@ -686,5 +774,129 @@ class _PresentationSlideListState extends ConsumerState<PresentationSlideList> {
         );
       },
     );
+  }
+}
+
+class _SongSearchDialog extends StatefulWidget {
+  final List<OnlineSong> songs;
+  final Function(OnlineSong) onSongSelected;
+
+  const _SongSearchDialog({
+    required this.songs,
+    required this.onSongSelected,
+  });
+
+  @override
+  State<_SongSearchDialog> createState() => _SongSearchDialogState();
+}
+
+class _SongSearchDialogState extends State<_SongSearchDialog> {
+  final TextEditingController _searchController = TextEditingController();
+  List<OnlineSong> _filteredSongs = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _filteredSongs = widget.songs;
+  }
+
+  void _filterSongs(String query) {
+    setState(() {
+      if (query.isEmpty) {
+        _filteredSongs = widget.songs;
+      } else {
+        _filteredSongs = widget.songs.where((song) {
+          final titleMatch = song.title.toLowerCase().contains(query.toLowerCase());
+          final artistMatch = song.artist.toLowerCase().contains(query.toLowerCase());
+          return titleMatch || artistMatch;
+        }).toList();
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: const Color(0xFF2D2D2D),
+      title: const Text('Search Songs', style: TextStyle(color: Colors.white)),
+      content: SizedBox(
+        width: 400,
+        height: 400,
+        child: Column(
+          children: [
+            // Search Input
+            TextField(
+              controller: _searchController,
+              autofocus: true,
+              style: const TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                hintText: 'Search by title or artist...',
+                hintStyle: const TextStyle(color: Colors.white38),
+                prefixIcon: const Icon(Icons.search, color: Colors.white54),
+                filled: true,
+                fillColor: const Color(0xFF383838),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+              onChanged: _filterSongs,
+            ),
+            const SizedBox(height: 16),
+            // Song Count
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '${_filteredSongs.length} songs found',
+                style: const TextStyle(color: Colors.white54, fontSize: 12),
+              ),
+            ),
+            const SizedBox(height: 8),
+            // Songs List
+            Expanded(
+              child: _filteredSongs.isEmpty
+                  ? const Center(
+                      child: Text('No songs match your search', style: TextStyle(color: Colors.white38)),
+                    )
+                  : ListView.builder(
+                      itemCount: _filteredSongs.length,
+                      itemBuilder: (context, index) {
+                        final song = _filteredSongs[index];
+                        return ListTile(
+                          leading: const Icon(LucideIcons.music, color: Colors.blue, size: 20),
+                          title: Text(
+                            song.title,
+                            style: const TextStyle(color: Colors.white),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Text(
+                            song.artist,
+                            style: const TextStyle(color: Colors.white54, fontSize: 12),
+                          ),
+                          onTap: () {
+                            Navigator.pop(context);
+                            widget.onSongSelected(song);
+                          },
+                          hoverColor: Colors.white10,
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+      ],
+    );
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 }

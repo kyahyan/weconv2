@@ -80,6 +80,20 @@ class OnlineSong {
     required this.artist,
     required this.content,
   });
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'title': title,
+    'artist': artist,
+    'content': content,
+  };
+
+  factory OnlineSong.fromJson(Map<String, dynamic> json) => OnlineSong(
+    id: json['id'] ?? '',
+    title: json['title'] ?? 'Untitled Song',
+    artist: json['artist'] ?? 'Unknown Artist',
+    content: json['content'] ?? '',
+  );
 }
 
 final onlineSongsProvider = FutureProvider<List<OnlineSong>>((ref) async {
@@ -220,6 +234,28 @@ class OnlineImportService {
       
     } catch (e) {
       throw Exception('Failed to import service: $e');
+    }
+  }
+
+  Future<int> syncAllSongs(List<OnlineSong> songs) async {
+    try {
+      final docsDir = await getApplicationDocumentsDirectory();
+      final assetsDir = Directory(p.join(docsDir.path, 'WeConnect', 'Assets'));
+      
+      if (!await assetsDir.exists()) {
+        await assetsDir.create(recursive: true);
+      }
+
+      final songsFile = File(p.join(assetsDir.path, 'songs.json'));
+      final songsData = songs.map((s) => s.toJson()).toList();
+      await songsFile.writeAsString(jsonEncode(songsData));
+      
+      // Refresh workspace
+      ref.read(workspaceControllerProvider.notifier).refresh();
+      
+      return songs.length;
+    } catch (e) {
+      throw Exception('Failed to sync songs: $e');
     }
   }
 }
