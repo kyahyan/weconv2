@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:core/core.dart';
 import 'package:flutter/material.dart';
 import 'package:ui_kit/ui_kit.dart';
@@ -10,28 +12,33 @@ import 'package:window_manager/window_manager.dart';
 
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
-  await windowManager.ensureInitialized();
   
-  // Ensure single instance on Windows
-  await WindowsSingleInstance.ensureSingleInstance(args, "weconnect_community_app_v2", onSecondWindow: (args) {
-    // This callback runs in the FIRST instance when a second instance tries to open
-    print("Second instance launched with args: $args");
-    
-    // Bring window to front
-    windowManager.show();
-    windowManager.focus();
+  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+    await windowManager.ensureInitialized();
+  }
+  
+  // Ensure single instance on Windows only
+  if (Platform.isWindows) {
+    await WindowsSingleInstance.ensureSingleInstance(args, "weconnect_community_app_v2", onSecondWindow: (args) {
+      // This callback runs in the FIRST instance when a second instance tries to open
+      print("Second instance launched with args: $args");
+      
+      // Bring window to front
+      windowManager.show();
+      windowManager.focus();
 
-    // Find the custom protocol url in args
-    for (final arg in args) {
-       if (arg.contains('io.supabase.flutter://')) {
-          try {
-             Supabase.instance.client.auth.getSessionFromUrl(Uri.parse(arg));
-          } catch (e) {
-             print("Error parsing deep link: $e");
-          }
-       }
-    }
-  });
+      // Find the custom protocol url in args
+      for (final arg in args) {
+         if (arg.contains('io.supabase.flutter://')) {
+            try {
+               Supabase.instance.client.auth.getSessionFromUrl(Uri.parse(arg));
+            } catch (e) {
+               print("Error parsing deep link: $e");
+            }
+         }
+      }
+    });
+  }
 
   await SupabaseConfig.init();
   runApp(const MyApp());
