@@ -1,0 +1,29 @@
+{
+    "project_info": {
+        "project_number": "1063549698047",
+        "project_id": "weconv2-a36fa",
+        "storage_bucket": "weconv2-a36fa.firebasestorage.app"
+    },
+    "client": [
+        {
+            "client_info": {
+                "mobilesdk_app_id": "1:1063549698047:android:fe811c0bf4ccde07d431ca",
+                "android_client_info": {
+                    "package_name": "com.weconnect.worship"
+                }
+            },
+            "oauth_client": [],
+            "api_key": [
+                {
+                    "current_key": "AIzaSyB-5NsIfmc4yPVVsmnEG8cLPjdcf7zf7lM"
+                }
+            ],
+            "services": {
+                "appinvite_service": {
+                    "other_platform_oauth_client": []
+                }
+            }
+        }
+    ],
+    "configuration_version": "1"
+}

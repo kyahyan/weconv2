@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:core/core.dart';
 import 'package:ui_kit/ui_kit.dart';
 import 'src/worship_home_screen.dart';
+import 'src/services/notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp();
   await SupabaseConfig.init();
+  await NotificationService().initNotifications();
   runApp(const MyApp());
 }
 

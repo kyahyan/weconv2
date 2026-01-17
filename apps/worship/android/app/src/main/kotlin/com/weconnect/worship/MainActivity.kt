@@ -1,4 +1,4 @@
-package com.example.worship
+package com.weconnect.worship
 
 import io.flutter.embedding.android.FlutterActivity
 
