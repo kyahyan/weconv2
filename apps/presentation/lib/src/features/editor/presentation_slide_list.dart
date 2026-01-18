@@ -11,13 +11,19 @@ import '../service/service_model.dart';
 import '../online/online_providers.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'lyrics_parser.dart';
+import '../bible/bible_model.dart';
+import '../bible/bible_repository.dart'; // For full book name resolution if needed
 
 class PresentationSlideList extends ConsumerStatefulWidget {
   final Function(int) onSlideSelected;
+  final Function(int)? onSlideGoLive;
+  final int? liveIndex;
 
   const PresentationSlideList({
     super.key,
     required this.onSlideSelected,
+    this.onSlideGoLive,
+    this.liveIndex,
   });
 
   @override
@@ -28,6 +34,17 @@ class _PresentationSlideListState extends ConsumerState<PresentationSlideList> {
   int _selectedIndex = 0;
   double _slideWidth = 240.0;
   final Uuid _uuid = const Uuid();
+  final Set<int> _selectedSlides = {}; // Multi-select
+  bool _isMultiSelectMode = false;
+  List<PresentationSlide> _clipboard = []; // For copy/paste
+  final FocusNode _focusNode = FocusNode();
+  int? _anchorIndex; // For Shift+Click range selection
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -44,8 +61,13 @@ class _PresentationSlideListState extends ConsumerState<PresentationSlideList> {
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.keyS, control: true): _saveProject,
+        const SingleActivator(LogicalKeyboardKey.keyC, control: true): _copySelectedSlides,
+        const SingleActivator(LogicalKeyboardKey.keyX, control: true): _cutSelectedSlides,
+        const SingleActivator(LogicalKeyboardKey.keyV, control: true): _pasteSlides,
+        const SingleActivator(LogicalKeyboardKey.delete): _deleteCurrentSlide,
       },
       child: Focus(
+        focusNode: _focusNode,
         autofocus: true,
         child: Container(
           color: const Color(0xFF1E1E1E),
@@ -224,112 +246,183 @@ class _PresentationSlideListState extends ConsumerState<PresentationSlideList> {
                      Expanded(
                        child: activeItem == null
                         ? const Center(child: Text('No Song Selected', style: TextStyle(color: Colors.white24)))
-                        : GridView.builder(
-                         padding: const EdgeInsets.all(8),
-                         gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-                           maxCrossAxisExtent: _slideWidth,
-                           childAspectRatio: 1.5,
-                           crossAxisSpacing: 8,
-                           mainAxisSpacing: 8,
-                         ),
-                         itemCount: activeItem.slides.length + 1,
-                         itemBuilder: (context, index) {
-                           // 1. Add Slide Button (Last Item)
-                           if (index == activeItem.slides.length) {
-                             return GestureDetector(
-                               onTap: _addSlide,
-                               child: Container(
-                                 decoration: BoxDecoration(
-                                   color: const Color(0xFF1E1E1E),
-                                   borderRadius: BorderRadius.circular(6),
-                                   border: Border.all(color: Colors.white10),
-                                   boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
+                        : DragTarget<List<BibleVerse>>(
+                           onWillAccept: (data) => data != null && data.isNotEmpty,
+                           onAccept: (verses) => _handleDroppedVerses(verses),
+                           builder: (context, candidateData, rejectedData) {
+                             return Container(
+                               decoration: candidateData.isNotEmpty 
+                                  ? BoxDecoration(border: Border.all(color: Colors.blueAccent, width: 2), borderRadius: BorderRadius.circular(8))
+                                  : null,
+                               child: GridView.builder(
+                                 padding: const EdgeInsets.all(8),
+                                 gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                                   maxCrossAxisExtent: _slideWidth,
+                                   childAspectRatio: 1.5,
+                                   crossAxisSpacing: 8,
+                                   mainAxisSpacing: 8,
                                  ),
-                                 child: const Center(
-                                   child: Column(
-                                     mainAxisSize: MainAxisSize.min,
-                                     children: [
-                                        Icon(Icons.add, color: Colors.white54, size: 32),
-                                        SizedBox(height: 8),
-                                        Text('Add Slide', style: TextStyle(color: Colors.white24)),
-                                     ],
-                                   ),
-                                 ),
-                               ),
-                             );
-                           }
-                           
-                           // 2. Real Slide
-                           final slide = activeItem.slides[index];
-                           final isSelected = _selectedIndex == index;
-                           final color = Color(slide.color == 0 ? 0xFF333333 : slide.color); 
-       
-                           return GestureDetector(
-                                 onTap: () {
-                                    setState(() => _selectedIndex = index);
-                                    widget.onSlideSelected(index);
-                                    ref.read(liveSlideContentProvider.notifier).state = LiveSlideData(
-                                        content: slide.content,
-                                        isBold: slide.isBold,
-                                        isItalic: slide.isItalic,
-                                        isUnderlined: slide.isUnderlined,
-                                        alignment: slide.alignment,
-                                    );
-                                 },
-                                 onSecondaryTapUp: (details) {
-                                    _showContextMenu(context, details.globalPosition, index, slide);
-                                 },
-                                 child: Container(
-                                   decoration: BoxDecoration(
-                                     color: const Color(0xFF000000), 
-                                     borderRadius: BorderRadius.circular(6),
-                                     border: isSelected 
-                                         ? Border.all(color: Colors.orange, width: 3) 
-                                         : Border.all(color: Colors.white24, width: 1),
-                                   ),
-                                   child: Stack(
-                                     children: [
-                                       // Content Preview (Perfect Fit)
-                                       Padding(
-                                         padding: const EdgeInsets.fromLTRB(12, 24, 12, 24), // Space for labels
-                                         child: Center(
-                                           child: FittedBox(
-                                             fit: BoxFit.contain,
-                                             child: ConstrainedBox(
-                                                constraints: const BoxConstraints(maxWidth: 400),
-                                                child: Text(
-                                                  slide.content,
-                                                  textAlign: TextAlign.center,
-                                                  style: const TextStyle(color: Colors.white, fontSize: 24, height: 1.2),
-                                                ),
-                                             ),
+                                 itemCount: activeItem.slides.length + 1,
+                                 itemBuilder: (context, index) {
+                                   // 1. Add Slide Button (Last Item)
+                                   if (index == activeItem.slides.length) {
+                                     return GestureDetector(
+                                       onTap: _addSlide,
+                                       child: Container(
+                                         decoration: BoxDecoration(
+                                           color: const Color(0xFF1E1E1E),
+                                           borderRadius: BorderRadius.circular(6),
+                                           border: Border.all(color: Colors.white10),
+                                           boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
+                                         ),
+                                         child: const Center(
+                                           child: Column(
+                                             mainAxisSize: MainAxisSize.min,
+                                             children: [
+                                                Icon(Icons.add, color: Colors.white54, size: 32),
+                                                SizedBox(height: 8),
+                                                Text('Add Slide', style: TextStyle(color: Colors.white24)),
+                                             ],
                                            ),
                                          ),
                                        ),
-                                       
-                                       // Label Badge (Top Left)
-                                       if (slide.label.isNotEmpty)
-                                       Positioned(
-                                         top: 4,
-                                         left: 4,
+                                     );
+                                   }
+                                   
+                                   // 2. Real Slide
+                                   final slide = activeItem.slides[index];
+                                   final isSelected = _selectedIndex == index;
+                                   final isLive = widget.liveIndex == index;
+                                   final isMultiSelected = _selectedSlides.contains(index);
+                                   final color = Color(slide.color == 0 ? 0xFF333333 : slide.color); 
+               
+                                   return GestureDetector(
+                                         onTap: () {
+                                            // Request focus to enable keyboard shortcuts
+                                            _focusNode.requestFocus();
+       
+                                            final isCtrlPressed = HardwareKeyboard.instance.isControlPressed;
+                                            final isShiftPressed = HardwareKeyboard.instance.isShiftPressed;
+                                            
+                                            if (isShiftPressed && _anchorIndex != null) {
+                                               // Range selection (For Editing)
+                                               final start = _anchorIndex! < index ? _anchorIndex! : index;
+                                               final end = _anchorIndex! < index ? index : _anchorIndex!;
+                                               
+                                               setState(() {
+                                                  _selectedSlides.clear();
+                                                  for (int i = start; i <= end; i++) {
+                                                     _selectedSlides.add(i);
+                                                  }
+                                                  _selectedIndex = index; // Update active edit slide
+                                               });
+                                               widget.onSlideSelected(index);
+                                            } else if (isCtrlPressed) {
+                                               // Toggle selection (For Editing)
+                                               setState(() {
+                                                  if (_selectedSlides.contains(index)) {
+                                                     _selectedSlides.remove(index);
+                                                  } else {
+                                                     _selectedSlides.add(index);
+                                                  }
+                                                  _anchorIndex = index;
+                                                  _selectedIndex = index;
+                                               });
+                                               widget.onSlideSelected(index);
+                                            } else {
+                                               // Single Click -> GO LIVE (Do NOT select for edit)
+                                               if (widget.onSlideGoLive != null) {
+                                                   widget.onSlideGoLive!(index);
+                                               }
+                                               
+                                               ref.read(liveSlideContentProvider.notifier).state = LiveSlideData(
+                                                   content: slide.content,
+                                                   isBold: slide.isBold,
+                                                   isItalic: slide.isItalic,
+                                                   isUnderlined: slide.isUnderlined,
+                                                   alignment: slide.alignment,
+                                               );
+                                            }
+                                         },
+                                         onDoubleTap: () {
+                                            // Double Click -> SELECT FOR EDITING (Do NOT Go Live)
+                                            _selectedSlides.clear();
+                                            _selectedSlides.add(index);
+                                            _anchorIndex = index;
+                                            setState(() => _selectedIndex = index);
+                                            
+                                            widget.onSlideSelected(index);
+                                         },
+                                         onSecondaryTapUp: (details) {
+                                            // Add to selection if not already
+                                            if (!_selectedSlides.contains(index)) {
+                                               setState(() => _selectedSlides.add(index));
+                                            }
+                                            _showContextMenu(context, details.globalPosition, index, slide);
+                                         },
                                          child: Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                                            decoration: BoxDecoration(
-                                              color: color.withOpacity(0.9),
-                                              borderRadius: BorderRadius.circular(4),
-                                            ),
-                                            child: Text(
-                                              slide.label, 
-                                              style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
-                                            ),
+                                           decoration: BoxDecoration(
+                                             color: const Color(0xFF000000), 
+                                             borderRadius: BorderRadius.circular(6),
+                                             border: isLive 
+                                                 ? Border.all(color: Colors.redAccent, width: 4) // Live
+                                                 : isSelected
+                                                     ? Border.all(color: Colors.orange, width: 2) // Editing
+                                                     : isMultiSelected
+                                                       ? Border.all(color: Colors.blue, width: 2)
+                                                       : Border.all(color: Colors.white24, width: 1),
+                                           ),
+                                           child: Stack(
+                                             children: [
+                                               // Content Preview (Perfect Fit)
+                                               Padding(
+                                                 padding: const EdgeInsets.fromLTRB(12, 24, 12, 24), // Space for labels
+                                                 child: Center(
+                                                   child: slide.content.isEmpty
+                                                     ? const Text(
+                                                         '(Empty Slide)',
+                                                         style: TextStyle(color: Colors.white24, fontSize: 14, fontStyle: FontStyle.italic),
+                                                       )
+                                                     : FittedBox(
+                                                         fit: BoxFit.contain,
+                                                         child: ConstrainedBox(
+                                                            constraints: const BoxConstraints(maxWidth: 400),
+                                                            child: Text(
+                                                              slide.content,
+                                                              textAlign: TextAlign.center,
+                                                              style: const TextStyle(color: Colors.white, fontSize: 24, height: 1.2),
+                                                            ),
+                                                         ),
+                                                       ),
+                                                 ),
+                                               ),
+                                               
+                                               // Label Badge (Top Left)
+                                               if (slide.label.isNotEmpty)
+                                               Positioned(
+                                                 top: 4,
+                                                 left: 4,
+                                                 child: Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                                    decoration: BoxDecoration(
+                                                      color: color.withOpacity(0.9),
+                                                      borderRadius: BorderRadius.circular(4),
+                                                    ),
+                                                    child: Text(
+                                                      slide.label, 
+                                                      style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                                                    ),
+                                                 ),
+                                               ),
+                                             ],
+                                           ),
                                          ),
-                                       ),
-                                     ],
-                                   ),
-                                 ),
-                               );
-                         },
-                       ),
+                                       );
+                                 },
+                               ),
+                             );
+                           },
+                         ),
                      ),
                    ],
                  ),
@@ -495,7 +588,7 @@ class _PresentationSlideListState extends ConsumerState<PresentationSlideList> {
      
      final newSlide = PresentationSlide(
         id: _uuid.v4(),
-        content: 'New Slide',
+        content: '',
         label: '',
         color: 0xFF333333,
      );
@@ -504,6 +597,180 @@ class _PresentationSlideListState extends ConsumerState<PresentationSlideList> {
      final updatedItem = activeItem.copyWith(slides: newSlides);
      
      _syncToProject(updatedItem);
+  }
+
+  void _copySelectedSlides() {
+     final activeItem = ref.read(activeEditorItemProvider);
+     if (activeItem == null) return;
+     
+     final indicesToCopy = _selectedSlides.isNotEmpty 
+        ? (_selectedSlides.toList()..sort())
+        : [_selectedIndex];
+     
+     _clipboard = indicesToCopy
+        .where((i) => i >= 0 && i < activeItem.slides.length)
+        .map((i) => activeItem.slides[i])
+        .toList();
+     
+     if (_clipboard.isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+           SnackBar(content: Text('Copied ${_clipboard.length} slide(s)'), duration: const Duration(seconds: 1)),
+        );
+     }
+  }
+
+  void _handleDroppedVerses(List<BibleVerse> verses) async {
+     if (verses.isEmpty) return;
+
+     if (verses.length == 1) {
+        // Just add single slide
+        _addSlideWithContent(verses.first);
+     } else {
+        // Multiple: Ask user
+        final choice = await showDialog<String>(
+           context: context,
+           builder: (context) => AlertDialog(
+              backgroundColor: const Color(0xFF333333),
+              title: const Text('Import Verses', style: TextStyle(color: Colors.white)),
+              content: Text('You dropped ${verses.length} verses. How would you like to add them?', style: const TextStyle(color: Colors.white70)),
+              actions: [
+                 TextButton(
+                    onPressed: () => Navigator.pop(context, 'one'),
+                    child: const Text('As One Slide'),
+                 ),
+                 ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent),
+                    onPressed: () => Navigator.pop(context, 'separate'),
+                    child: const Text('Separate Slides'),
+                 ),
+              ],
+           ),
+        );
+
+        if (choice == 'one') {
+           _addCombinedSlide(verses);
+        } else if (choice == 'separate') {
+           for (final v in verses) {
+              _addSlideWithContent(v);
+           }
+        }
+     }
+  }
+
+  void _addSlideWithContent(BibleVerse verse) {
+      final activeItem = ref.read(activeEditorItemProvider);
+      if (activeItem == null) return;
+      
+      final repo = ref.read(bibleRepositoryProvider);
+      final fullBookName = repo.getBookFullName(verse.bookName); // Potentially async or cached? Method seems synchronous in previous usage.
+      final refText = "$fullBookName ${verse.chapter}:${verse.verse}";
+      
+      final newSlide = PresentationSlide(
+         id: _uuid.v4(),
+         content: "$refText\n${verse.text}",
+         label: 'Scripture',
+         color: 0xFF8B0000, // Dark Red for Scripture
+      );
+      
+      final newSlides = List<PresentationSlide>.from(activeItem.slides)..add(newSlide);
+      final updatedItem = activeItem.copyWith(slides: newSlides);
+      _syncToProject(updatedItem);
+  }
+
+  void _addCombinedSlide(List<BibleVerse> verses) {
+      final activeItem = ref.read(activeEditorItemProvider);
+      if (activeItem == null) return;
+      
+      final repo = ref.read(bibleRepositoryProvider);
+      
+      final contentBuffer = StringBuffer();
+      // Heuristic: If same chapter, just range? "John 3:16-18"
+      // For now, keep it simple: List references, then text? Or Interleaved?
+      // Usually: Ref range at top, then text block.
+      
+      // Let's try to detect range.
+      final first = verses.first;
+      final last = verses.last;
+      
+      // Full range string
+      String refString = "${repo.getBookFullName(first.bookName)} ${first.chapter}:${first.verse}";
+      if (verses.length > 1) {
+         if (first.bookName == last.bookName && first.chapter == last.chapter) {
+             refString += "-${last.verse}";
+         } else {
+             // Different books/chapters: "John 3:16 - Rom 1:1" (Simple)
+             refString += " - ${repo.getBookFullName(last.bookName)} ${last.chapter}:${last.verse}";
+         }
+      }
+      
+      contentBuffer.writeln(refString);
+      for (final v in verses) {
+          // contentBuffer.writeln("[${v.verse}] ${v.text}"); 
+          // User typically wants just text flow, maybe with verse numbers.
+          contentBuffer.write("${v.verse} ${v.text} "); 
+      }
+      
+      final newSlide = PresentationSlide(
+         id: _uuid.v4(),
+         content: contentBuffer.toString().trim(),
+         label: 'Scripture',
+         color: 0xFF8B0000,
+      );
+      
+      final newSlides = List<PresentationSlide>.from(activeItem.slides)..add(newSlide);
+      final updatedItem = activeItem.copyWith(slides: newSlides);
+      _syncToProject(updatedItem);
+  }
+
+  void _cutSelectedSlides() {
+     final activeItem = ref.read(activeEditorItemProvider);
+     if (activeItem == null) return;
+     
+     _copySelectedSlides();
+     
+     if (_selectedSlides.isNotEmpty) {
+        _deleteSelectedSlides();
+     } else {
+        _deleteSlide(_selectedIndex);
+     }
+  }
+
+  void _pasteSlides() {
+     final activeItem = ref.read(activeEditorItemProvider);
+     if (activeItem == null || _clipboard.isEmpty) return;
+     
+     final slides = List<PresentationSlide>.from(activeItem.slides);
+     final insertAt = _selectedIndex + 1;
+     
+     for (final original in _clipboard) {
+        final newSlide = PresentationSlide(
+           id: _uuid.v4(),
+           content: original.content,
+           label: original.label,
+           color: original.color,
+           isBold: original.isBold,
+           isItalic: original.isItalic,
+           isUnderlined: original.isUnderlined,
+           alignment: original.alignment,
+           styledRanges: List.from(original.styledRanges),
+        );
+        slides.insert(insertAt, newSlide);
+     }
+     
+     final updatedItem = activeItem.copyWith(slides: slides);
+     _syncToProject(updatedItem);
+     
+     ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Pasted ${_clipboard.length} slide(s)'), duration: const Duration(seconds: 1)),
+     );
+  }
+
+  void _deleteCurrentSlide() {
+     if (_selectedSlides.isNotEmpty) {
+        _deleteSelectedSlides();
+     } else {
+        _deleteSlide(_selectedIndex);
+     }
   }
 
   void _updateSlideGroup(int index, String label, int color) {
@@ -524,21 +791,154 @@ class _PresentationSlideListState extends ConsumerState<PresentationSlideList> {
      _syncToProject(updatedItem);
   }
 
+  void _deleteSlide(int index) {
+     final activeItem = ref.read(activeEditorItemProvider);
+     if (activeItem == null || activeItem.slides.isEmpty) return;
+     
+     final slides = List<PresentationSlide>.from(activeItem.slides);
+     if (index < 0 || index >= slides.length) return;
+     
+     slides.removeAt(index);
+     final updatedItem = activeItem.copyWith(slides: slides);
+     _syncToProject(updatedItem);
+     
+     // Adjust selection
+     if (_selectedIndex >= slides.length) {
+        setState(() => _selectedIndex = slides.isNotEmpty ? slides.length - 1 : 0);
+     }
+     _selectedSlides.clear();
+  }
+
+  void _deleteSelectedSlides() {
+     final activeItem = ref.read(activeEditorItemProvider);
+     if (activeItem == null) return;
+     
+     final slides = List<PresentationSlide>.from(activeItem.slides);
+     final toRemove = _selectedSlides.toList()..sort((a, b) => b.compareTo(a)); // Descending
+     for (final idx in toRemove) {
+        if (idx >= 0 && idx < slides.length) {
+           slides.removeAt(idx);
+        }
+     }
+     
+     final updatedItem = activeItem.copyWith(slides: slides);
+     _syncToProject(updatedItem);
+     _selectedSlides.clear();
+     setState(() => _selectedIndex = slides.isNotEmpty ? 0 : 0);
+  }
+
+  void _duplicateSlide(int index) {
+     final activeItem = ref.read(activeEditorItemProvider);
+     if (activeItem == null) return;
+     if (index < 0 || index >= activeItem.slides.length) return;
+     
+     final slides = List<PresentationSlide>.from(activeItem.slides);
+     final original = slides[index];
+     final duplicate = PresentationSlide(
+        id: _uuid.v4(),
+        content: original.content,
+        label: original.label,
+        color: original.color,
+        isBold: original.isBold,
+        isItalic: original.isItalic,
+        isUnderlined: original.isUnderlined,
+        alignment: original.alignment,
+        styledRanges: List.from(original.styledRanges),
+     );
+     
+     slides.insert(index + 1, duplicate);
+     final updatedItem = activeItem.copyWith(slides: slides);
+     _syncToProject(updatedItem);
+  }
+
+  void _duplicateSelectedSlides() {
+     final activeItem = ref.read(activeEditorItemProvider);
+     if (activeItem == null) return;
+     
+     final slides = List<PresentationSlide>.from(activeItem.slides);
+     final indices = _selectedSlides.toList()..sort(); // Ascending
+     
+     int offset = 0;
+     for (final idx in indices) {
+        final insertAt = idx + offset + 1;
+        if (idx >= 0 && idx < activeItem.slides.length) {
+           final original = activeItem.slides[idx];
+           final duplicate = PresentationSlide(
+              id: _uuid.v4(),
+              content: original.content,
+              label: original.label,
+              color: original.color,
+              isBold: original.isBold,
+              isItalic: original.isItalic,
+              isUnderlined: original.isUnderlined,
+              alignment: original.alignment,
+              styledRanges: List.from(original.styledRanges),
+           );
+           slides.insert(insertAt, duplicate);
+           offset++;
+        }
+     }
+     
+     final updatedItem = activeItem.copyWith(slides: slides);
+     _syncToProject(updatedItem);
+     _selectedSlides.clear();
+  }
+
   void _showContextMenu(BuildContext context, Offset position, int index, PresentationSlide slide) async {
+    final isMulti = _selectedSlides.length > 1 && _selectedSlides.contains(index);
+    final count = isMulti ? _selectedSlides.length : 1;
+    
     final result = await showMenu(
       context: context,
       position: RelativeRect.fromLTRB(position.dx, position.dy, position.dx, position.dy),
       items: [
+         PopupMenuItem(
+           value: 'delete',
+           child: Row(
+             children: [
+               const Icon(LucideIcons.trash2, size: 16, color: Colors.redAccent),
+               const SizedBox(width: 8),
+               Text('Delete${isMulti ? ' ($count slides)' : ''}', style: const TextStyle(color: Colors.redAccent)),
+             ],
+           ),
+         ),
+         const PopupMenuItem(
+           value: 'duplicate',
+           child: Row(
+             children: [
+               Icon(LucideIcons.copy, size: 16, color: Colors.white70),
+               SizedBox(width: 8),
+               Text('Duplicate'),
+             ],
+           ),
+         ),
          const PopupMenuItem(
            value: 'group',
-           child: Text('Group...'),
+           child: Row(
+             children: [
+               Icon(LucideIcons.tag, size: 16, color: Colors.white70),
+               SizedBox(width: 8),
+               Text('Group...'),
+             ],
+           ),
          ),
       ],
     );
     
-    if (result == 'group') {
+    if (result == 'delete') {
+       if (isMulti) {
+         _deleteSelectedSlides();
+       } else {
+         _deleteSlide(index);
+       }
+    } else if (result == 'duplicate') {
+       if (isMulti) {
+         _duplicateSelectedSlides();
+       } else {
+         _duplicateSlide(index);
+       }
+    } else if (result == 'group') {
        if (!mounted) return;
-       // Show sub-menu or dialog for grouping
        _showGroupDialog(context, index);
     }
   }

@@ -11,6 +11,12 @@ import 'features/editor/presentation_editor_controls.dart';
 import 'features/online/online_service_panel.dart';
 import 'features/screens/ui/screen_configuration_dialog.dart';
 import 'features/bible/bible_panel.dart';
+import 'features/service/service_model.dart';
+
+import 'features/editor/editor_provider.dart';
+import 'features/screens/models/screen_model.dart'; // Ensure ScreenType is available
+import 'features/screens/repositories/screen_repository.dart';
+import 'features/screens/services/projection_window_manager.dart';
 
 class ProjectionControlScreen extends ConsumerStatefulWidget {
   const ProjectionControlScreen({super.key});
@@ -25,9 +31,12 @@ class _ProjectionControlScreenState extends ConsumerState<ProjectionControlScree
   double _workspaceWidth = 300.0;
   double _notesHeight = 200.0;
   int _selectedSlideIndex = 0;
+  int _liveSlideIndex = -1;
 
   @override
   Widget build(BuildContext context) {
+    final liveContent = ref.watch(liveSlideContentProvider);
+
     return Scaffold(
       body: Column(
         children: [
@@ -139,6 +148,12 @@ class _ProjectionControlScreenState extends ConsumerState<ProjectionControlScree
                                       // Editor Content
                                       Expanded(
                                         child: PresentationSlideList(
+                                          liveIndex: _liveSlideIndex,
+                                          onSlideGoLive: (index) {
+                                            setState(() {
+                                              _liveSlideIndex = index;
+                                            });
+                                          },
                                           onSlideSelected: (index) {
                                             setState(() {
                                               _selectedSlideIndex = index;
@@ -211,7 +226,7 @@ class _ProjectionControlScreenState extends ConsumerState<ProjectionControlScree
                               ),
                             ),
 
-                            // Bottom Unified Panel (Slides + Editor + Bible + Media)
+                            // Bottom UnifiedPanel (Slides + Editor + Bible + Media)
                             SizedBox(
                               height: _bottomPanelHeight,
                               child: Container(
@@ -233,12 +248,25 @@ class _ProjectionControlScreenState extends ConsumerState<ProjectionControlScree
                                         _buildTabItem('Media', 3), // Keep index but it might be confusing if we don't reorder. Let's keep logic simple.
                                         const SizedBox(width: 16),
                                         _buildTabItem('Online', 4),
+                                        
+                                        // Slide Navigation Controls (Centered-ish or after tabs)
                                         const Spacer(),
-                                        // Toggles
-                                        _buildTypeToggle(ref, 'Audience', ScreenType.audience),
-                                        const SizedBox(width: 16),
-                                        _buildTypeToggle(ref, 'Stage', ScreenType.stage),
-                                        const SizedBox(width: 16),
+                                        IconButton(
+                                           icon: const Icon(Icons.arrow_back_ios, size: 16, color: Colors.white),
+                                           tooltip: 'Previous Slide',
+                                           onPressed: _goToPreviousSlide,
+                                           constraints: const BoxConstraints(),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        IconButton(
+                                           icon: const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.white),
+                                           tooltip: 'Next Slide',
+                                           onPressed: _goToNextSlide,
+                                           constraints: const BoxConstraints(),
+                                        ),
+                                        
+                                        const Spacer(),
+                                        // Toggles REMOVED from here as moved to top
                                       ],
                                     ),
                                     const SizedBox(height: 8),
@@ -266,10 +294,67 @@ class _ProjectionControlScreenState extends ConsumerState<ProjectionControlScree
                          _notesHeight = _notesHeight.clamp(50.0, totalHeight - 100.0);
                          
                          return Column(
+                           crossAxisAlignment: CrossAxisAlignment.start,
                            children: [
-                             // Bible Panel (Top Right)
+                             // Previews at Top
+                             // Previews at Top - Side by Side with Overlay
+                            Padding(
+                               padding: const EdgeInsets.all(8.0),
+                               child: Row(
+                                  children: [
+                                     // Audience Preview
+                                     Expanded(
+                                        child: _buildPreviewTile(
+                                           label: 'Audience',
+                                           type: ScreenType.audience,
+                                           content: FittedBox(
+                                              fit: BoxFit.contain,
+                                              child: SizedBox(
+                                                 width: 1920, 
+                                                 height: 1080,
+                                                 child: Padding(
+                                                    padding: const EdgeInsets.all(48.0),
+                                                    child: Center(
+                                                       child: Text(
+                                                          liveContent.content.isNotEmpty ? liveContent.content : 'Audience Screen',
+                                                          textAlign: liveContent.alignment == 0 ? TextAlign.left : (liveContent.alignment == 2 ? TextAlign.right : TextAlign.center),
+                                                          style: TextStyle(
+                                                             color: Colors.white, 
+                                                             fontSize: 80,
+                                                             fontWeight: liveContent.isBold ? FontWeight.bold : FontWeight.normal,
+                                                             fontStyle: liveContent.isItalic ? FontStyle.italic : FontStyle.normal,
+                                                             decoration: liveContent.isUnderlined ? TextDecoration.underline : TextDecoration.none,
+                                                          ),
+                                                       ),
+                                                    ),
+                                                 ),
+                                              ),
+                                           ),
+                                        ),
+                                     ),
+                                     
+                                     const SizedBox(width: 8),
+                                     
+                                     // Stage Preview
+                                     Expanded(
+                                        child: _buildPreviewTile(
+                                           label: 'Stage', 
+                                           type: ScreenType.stage,
+                                           content: const FittedBox(
+                                              fit: BoxFit.contain,
+                                              child: Text('Stage View', style: TextStyle(color: Colors.white54, fontSize: 16)),
+                                           ),
+                                        ),
+                                     ),
+                                  ],
+                               ),
+                            ),
+                            
+                            const SizedBox(height: 8),
+                             
+                             // Bible Panel (Top Right - below previews)
                              Expanded(
-                               child: const BiblePanel(),
+                                child: const BiblePanel(),
                              ),
                              
                              // Resizable Divider for Notes
@@ -340,6 +425,121 @@ class _ProjectionControlScreenState extends ConsumerState<ProjectionControlScree
     );
   }
 
+  Widget _buildPreviewTile({
+     required String label, 
+     required ScreenType type, 
+     required Widget content
+  }) {
+     final activeWindows = ref.watch(projectionWindowManagerProvider);
+     final screens = ref.watch(screenRepositoryProvider);
+     
+     // Find relevant screen for this type
+     final screen = screens.where((s) => s.type == type).firstOrNull;
+     
+     final isConnected = screen != null;
+     final isOpen = isConnected && activeWindows.containsKey(screen!.id);
+     
+     return AspectRatio(
+        aspectRatio: 16 / 9,
+        child: Container(
+           decoration: BoxDecoration(
+              color: Colors.black,
+              border: Border.all(color: Colors.white24),
+              borderRadius: BorderRadius.circular(4),
+           ),
+           child: Stack(
+              children: [
+                 // Content at bottom
+                 Positioned.fill(
+                    child: Padding(
+                       padding: const EdgeInsets.all(8.0), // Padding so text doesn't hit border directly
+                       child: Center(child: content),
+                    ),
+                 ),
+                 
+                 // Overlay Header (Top Left)
+                 Positioned(
+                    top: 8, 
+                    left: 8,
+                    child: Row(
+                       mainAxisSize: MainAxisSize.min,
+                       children: [
+                          InkWell( // Toggle Button
+                             onTap: () {
+                                if (!isConnected) {
+                                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No $label screen configured.')));
+                                   return;
+                                }
+                                
+                                if (isOpen) {
+                                   ref.read(projectionWindowManagerProvider.notifier).closeDisplay(screen!.id);
+                                } else {
+                                   ref.read(projectionWindowManagerProvider.notifier).openDisplay(screen!);
+                                }
+                             },
+                             child: Container(
+                                width: 16,
+                                height: 16,
+                                decoration: BoxDecoration(
+                                   shape: BoxShape.circle,
+                                   color: isOpen ? Colors.greenAccent : Colors.transparent, 
+                                   border: Border.all(color: Colors.greenAccent, width: 2),
+                                ),
+                             ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(label, style: const TextStyle(
+                             color: Colors.white, 
+                             fontSize: 12, 
+                             fontWeight: FontWeight.bold,
+                             shadows: [Shadow(color: Colors.black, blurRadius: 4)],
+                          )),
+                       ],
+                    ),
+                 ),
+              ],
+           ),
+        ),
+     );
+  }
+
+  void _goToNextSlide() {
+     final activeItem = ref.read(activeEditorItemProvider);
+     if (activeItem == null || activeItem.slides.isEmpty) return;
+
+     if (_liveSlideIndex < activeItem.slides.length - 1) {
+        final newIndex = _liveSlideIndex + 1;
+        _goLive(newIndex, activeItem);
+     }
+  }
+
+  void _goToPreviousSlide() {
+     final activeItem = ref.read(activeEditorItemProvider);
+     if (activeItem == null || activeItem.slides.isEmpty) return;
+
+     if (_liveSlideIndex > 0) {
+        final newIndex = _liveSlideIndex - 1;
+        _goLive(newIndex, activeItem);
+     }
+  }
+
+  void _goLive(int index, ServiceItem item) {
+     setState(() {
+        _liveSlideIndex = index;
+        _selectedSlideIndex = index; // Optional: Sync editing with live
+     });
+     
+     final slide = item.slides[index];
+     ref.read(liveSlideContentProvider.notifier).state = LiveSlideData(
+         content: slide.content,
+         isBold: slide.isBold,
+         isItalic: slide.isItalic,
+         isUnderlined: slide.isUnderlined,
+         alignment: slide.alignment,
+     );
+  }
+
+
   Widget _buildBottomPanelContent() {
     switch (_selectedTabIndex) {
       case 0: // Main (was Order of Service)
@@ -393,58 +593,6 @@ class _ProjectionControlScreenState extends ConsumerState<ProjectionControlScree
         ],
       ),
     );
-  }
-
-  Widget _buildTypeToggle(WidgetRef ref, String label, ScreenType type) {
-     final activeWindows = ref.watch(projectionWindowManagerProvider);
-     final screens = ref.watch(screenRepositoryProvider);
-     
-     // Find relevant screen for this type
-     final screen = screens.where((s) => s.type == type).firstOrNull;
-     
-     final isConnected = screen != null;
-     final isOpen = isConnected && activeWindows.containsKey(screen!.id);
-     
-     return InkWell(
-        onTap: () {
-           if (!isConnected) {
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No $label screen configured.')));
-              return;
-           }
-           
-           if (isOpen) {
-              ref.read(projectionWindowManagerProvider.notifier).closeDisplay(screen!.id);
-           } else {
-              ref.read(projectionWindowManagerProvider.notifier).openDisplay(screen!);
-           }
-        },
-        child: Column(
-           mainAxisSize: MainAxisSize.min,
-           children: [
-              Container(
-                width: 12,
-                height: 12,
-                decoration: BoxDecoration(
-                   shape: BoxShape.circle,
-                   color: Colors.transparent,
-                   border: Border.all(color: Colors.redAccent, width: 2),
-                ),
-                child: isOpen ? Center(
-                   child: Container(
-                      width: 6,
-                      height: 6,
-                      decoration: const BoxDecoration(
-                         shape: BoxShape.circle,
-                         color: Colors.redAccent,
-                      ),
-                   ),
-                ) : null,
-              ),
-              const SizedBox(height: 4),
-              Text(label, style: const TextStyle(color: Colors.white, fontSize: 11)),
-           ],
-        ),
-     );
   }
 }
 

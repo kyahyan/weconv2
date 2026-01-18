@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'editor_provider.dart';
+import 'bible_rich_text_controller.dart';
 import '../service/service_model.dart';
 import '../bible/bible_repository.dart';
 import '../bible/bible_model.dart';
+import '../screens/models/screen_model.dart';
+import '../screens/repositories/screen_repository.dart';
+import '../screens/services/projection_window_manager.dart';
 
 
 class PresentationEditorControls extends ConsumerStatefulWidget {
@@ -19,11 +24,17 @@ class PresentationEditorControls extends ConsumerStatefulWidget {
 }
 
 class _PresentationEditorControlsState extends ConsumerState<PresentationEditorControls> {
-  late TextEditingController _textController;
+  late BibleRichTextController _textController;
   ServiceItem? _activeItem;
   int? _lastSlideIndex;
   List<String> _detectedVerses = [];
   String? _projectedVerseRef; // Tracks if we are currently overriding with a verse
+  
+  // Undo/Redo History
+  final List<_EditorState> _undoStack = [];
+  final List<_EditorState> _redoStack = [];
+  bool _isUndoRedoAction = false;
+  final FocusNode _editorFocusNode = FocusNode();
   
   // Bible Settings
   String _selectedLanguage = 'English';
@@ -33,13 +44,16 @@ class _PresentationEditorControlsState extends ConsumerState<PresentationEditorC
   @override
   void initState() {
     super.initState();
-    _textController = TextEditingController();
+    _textController = BibleRichTextController(
+      onBibleReferenceTap: _onBibleReferenceTap,
+    );
   }
 
   @override
   void dispose() {
     _textController.dispose();
     _versesScrollController.dispose();
+    _editorFocusNode.dispose();
     super.dispose();
   }
 
@@ -47,6 +61,11 @@ class _PresentationEditorControlsState extends ConsumerState<PresentationEditorC
   void didUpdateWidget(covariant PresentationEditorControls oldWidget) {
     super.didUpdateWidget(oldWidget);
     // If index changed, we must update text, BUT we should also check if the active item changed in build
+  }
+
+  /// Callback for when a Bible reference is tapped in the text field.
+  void _onBibleReferenceTap(String reference) {
+    _toggleProjectVerse(reference);
   }
 
   void _syncToProject(ServiceItem updatedItem) {
@@ -65,6 +84,78 @@ class _PresentationEditorControlsState extends ConsumerState<PresentationEditorC
      }
   }
 
+  void _pushUndoState(String content, List<TextStyleRange> ranges) {
+     _undoStack.add(_EditorState(
+        content: content,
+        styledRanges: List.from(ranges),
+     ));
+     if (_undoStack.length > 50) _undoStack.removeAt(0);
+     _redoStack.clear();
+  }
+
+  void _undo() {
+     if (_undoStack.isEmpty || _activeItem == null) return;
+     if (widget.selectedSlideIndex < 0 || widget.selectedSlideIndex >= _activeItem!.slides.length) return;
+     
+     final current = _activeItem!.slides[widget.selectedSlideIndex];
+     _redoStack.add(_EditorState(content: current.content, styledRanges: List.from(current.styledRanges)));
+     
+     final prevState = _undoStack.removeLast();
+     _isUndoRedoAction = true;
+     _textController.text = prevState.content;
+     _textController.styledRanges = prevState.styledRanges;
+     
+     final slides = List<PresentationSlide>.from(_activeItem!.slides);
+     slides[widget.selectedSlideIndex] = current.copyWith(content: prevState.content, styledRanges: prevState.styledRanges);
+     
+     final updatedItem = _activeItem!.copyWith(slides: slides);
+     _syncToProject(updatedItem);
+     _isUndoRedoAction = false;
+     setState(() {});
+  }
+
+  void _redo() {
+     if (_redoStack.isEmpty || _activeItem == null) return;
+     if (widget.selectedSlideIndex < 0 || widget.selectedSlideIndex >= _activeItem!.slides.length) return;
+     
+     final current = _activeItem!.slides[widget.selectedSlideIndex];
+     _undoStack.add(_EditorState(content: current.content, styledRanges: List.from(current.styledRanges)));
+     
+     final nextState = _redoStack.removeLast();
+     _isUndoRedoAction = true;
+     _textController.text = nextState.content;
+     _textController.styledRanges = nextState.styledRanges;
+     
+     final slides = List<PresentationSlide>.from(_activeItem!.slides);
+     slides[widget.selectedSlideIndex] = current.copyWith(content: nextState.content, styledRanges: nextState.styledRanges);
+     
+     final updatedItem = _activeItem!.copyWith(slides: slides);
+     _syncToProject(updatedItem);
+     _isUndoRedoAction = false;
+     setState(() {});
+  }
+
+  KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
+     if (event is KeyDownEvent) {
+        final isCtrl = HardwareKeyboard.instance.isControlPressed;
+        final isShift = HardwareKeyboard.instance.isShiftPressed;
+        
+        if (isCtrl && event.logicalKey == LogicalKeyboardKey.keyZ) {
+           if (isShift) {
+              _redo();
+           } else {
+              _undo();
+           }
+           return KeyEventResult.handled;
+        }
+        if (isCtrl && event.logicalKey == LogicalKeyboardKey.keyY) {
+           _redo();
+           return KeyEventResult.handled;
+        }
+     }
+     return KeyEventResult.ignored;
+  }
+
   void _onTextChanged(String value) {
      if (_activeItem == null) return;
      if (widget.selectedSlideIndex < 0 || widget.selectedSlideIndex >= _activeItem!.slides.length) return;
@@ -73,41 +164,126 @@ class _PresentationEditorControlsState extends ConsumerState<PresentationEditorC
      final currentSlide = slides[widget.selectedSlideIndex];
      
      if (currentSlide.content == value) return; // No change
+     
+     // Push to undo stack (unless this is an undo/redo action)
+     if (!_isUndoRedoAction) {
+        _pushUndoState(currentSlide.content, currentSlide.styledRanges);
+     }
+
+     final oldText = currentSlide.content;
+     final newText = value;
+     final lengthDiff = newText.length - oldText.length;
+     
+     // Determine where the change occurred based on cursor position
+     final cursorPos = _textController.selection.baseOffset;
+     // The change point is where the cursor was before the change
+     // For insertion: cursor - lengthDiff is where text was inserted
+     // For deletion: cursor is where text was deleted
+     final changePoint = lengthDiff > 0 ? cursorPos - lengthDiff : cursorPos;
+     
+     List<TextStyleRange> adjustedRanges = [];
+     
+     for (final range in currentSlide.styledRanges) {
+        int newStart = range.start;
+        int newEnd = range.end;
+        
+        if (lengthDiff > 0) {
+           // Text was inserted
+           if (changePoint <= range.start) {
+              // Insertion before range - shift entire range
+              newStart += lengthDiff;
+              newEnd += lengthDiff;
+           } else if (changePoint > range.start && changePoint <= range.end) {
+              // Insertion inside range (or at end) - expand range
+              newEnd += lengthDiff;
+           }
+           // Insertion after range - no change needed
+        } else if (lengthDiff < 0) {
+           // Text was deleted
+           final deleteStart = changePoint;
+           final deleteEnd = changePoint - lengthDiff; // -lengthDiff is positive
+           
+           if (deleteEnd <= range.start) {
+              // Deletion before range - shift entire range
+              newStart += lengthDiff;
+              newEnd += lengthDiff;
+           } else if (deleteStart >= range.end) {
+              // Deletion after range - no change needed
+           } else {
+              // Deletion overlaps with range
+              if (deleteStart <= range.start && deleteEnd >= range.end) {
+                 // Entire range was deleted
+                 newStart = 0;
+                 newEnd = 0;
+              } else if (deleteStart <= range.start) {
+                 // Delete from before range into range
+                 newStart = deleteStart;
+                 newEnd = range.end + lengthDiff;
+              } else if (deleteEnd >= range.end) {
+                 // Delete from inside range to after
+                 newEnd = deleteStart;
+              } else {
+                 // Delete entirely within range
+                 newEnd = range.end + lengthDiff;
+              }
+           }
+        }
+        
+        // Clamp to valid bounds
+        newStart = newStart.clamp(0, newText.length);
+        newEnd = newEnd.clamp(0, newText.length);
+        
+        // Only keep valid ranges
+        if (newStart < newEnd) {
+           adjustedRanges.add(TextStyleRange(
+              start: newStart,
+              end: newEnd,
+              isBold: range.isBold,
+              isItalic: range.isItalic,
+              isUnderlined: range.isUnderlined,
+              highlightColor: range.highlightColor,
+              textColor: range.textColor,
+              fontFamily: range.fontFamily,
+              fontSize: range.fontSize,
+           ));
+        }
+     }
 
      slides[widget.selectedSlideIndex] = PresentationSlide(
         id: currentSlide.id,
         content: value,
         label: currentSlide.label,
         color: currentSlide.color,
+        styledRanges: adjustedRanges,
      );
 
      final updatedItem = _activeItem!.copyWith(slides: slides);
      
-     // Optimistically update local reference to avoid jitter ? 
-     // Actually ref.read will trigger rebuild, so we should be careful with text cursor.
-     // For now, let's just sync.
-     _syncToProject(updatedItem);
-
-     // Update live content immediately for real-time preview (as requested)
-     ref.read(liveSlideContentProvider.notifier).state = LiveSlideData(
-        content: value,
-        isBold: currentSlide.isBold,
-        isItalic: currentSlide.isItalic,
-        isUnderlined: currentSlide.isUnderlined,
-        alignment: currentSlide.alignment,
-     );
+     // Update controller's styledRanges immediately
+     _textController.styledRanges = adjustedRanges;
      
-     // Detect Bible References
-     _parseBibleReferences(value);
-  }
+     
+     _syncToProject(updatedItem);
+     
+     
+      // Detect Bible References
+      _parseBibleReferences(updatedItem);
+   }
 
-  void _parseBibleReferences(String text) {
+  void _parseBibleReferences([ServiceItem? item]) {
+     // Use provided item or fall back to active
+     final targetItem = item ?? _activeItem;
+     if (targetItem == null) return;
+
+     // Aggregate text from all slides
+     final allText = targetItem.slides.map((s) => s.content).join('\n');
+
      // Regex for [Number?] [Name] [Chapter]:[VerseRange]
      // e.g. Genesis 1:1, John 3:16-20, Rom 1:1,3,5
      final regex = RegExp(r'\b((?:[1-3]\s)?[A-Za-z]+)\s+(\d+):(\d+(?:[-,\s]+\d+)*)\b');
-     final matches = regex.allMatches(text);
+     final matches = regex.allMatches(allText);
      
-     final found = matches.map((m) => text.substring(m.start, m.end)).toSet().toList();
+     final found = matches.map((m) => allText.substring(m.start, m.end)).toSet().toList();
      
      if (found.length != _detectedVerses.length || !found.every((e) => _detectedVerses.contains(e))) {
         setState(() {
@@ -172,17 +348,20 @@ class _PresentationEditorControlsState extends ConsumerState<PresentationEditorC
      });
   }
 
-  Future<void> _projectVerse(String refString) async {
+  Future<String?> _resolveVerseContent(String refString) async {
      final repo = ref.read(bibleRepositoryProvider);
      
      // Ensure data loaded
      if (repo.getVersions().isEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Loading Bible database... please wait.')));
+          // If we are resolving content, we need to wait or fail if data isn't there.
+          // Since this might be called from context menu, let's try to load if missing.
           await repo.loadBibleData();
           if (mounted) setState(() {});
      }
      
      final versions = repo.getVersions();
+     if (versions.isEmpty) return null; // Failed to load
+     
      final targetVersionId = _selectedVersionId ?? 
         (versions.isNotEmpty ? versions.firstWhere((v) => v.language == _selectedLanguage, orElse: () => versions.first).id : null);
         
@@ -196,11 +375,6 @@ class _PresentationEditorControlsState extends ConsumerState<PresentationEditorC
         final versesRaw = match.group(3)!;
         final targetVerses = _parseVerseList(versesRaw);
         
-        // Use searchVerses to Resolve Book Name (using just "Book Chapter" to get right book)
-        // or we can use repo.getVerses directly if we resolve the book code.
-        // repo.searchVerses has logic to resolve "Gen" -> "Genesis" -> "GEN". 
-        // Let's rely on repo.searchVerses to find the book code/name first by searching for "Book Chapter:FirstVerse"
-        
         final probeRef = "$bookRaw $chapter:${targetVerses.first}";
         final searchResults = repo.searchVerses(probeRef, versionId: targetVersionId);
         
@@ -208,41 +382,36 @@ class _PresentationEditorControlsState extends ConsumerState<PresentationEditorC
            final firstVerse = searchResults.first;
            final bookName = firstVerse.bookName;
            final version = versions.firstWhere((v) => v.id == targetVersionId, orElse: () => versions.first);
+           final fullBookName = repo.getBookFullName(bookName);
            
-           // Now fetch ALL verses for this chapter to ensure we get the full range even if search returned subset
-           // (Repo search might be exact match on probe).
-           // Optimization: repo.getVerses is fast cache lookup
            final allChapterVerses = repo.getVerses(version.abbreviation, bookName, chapter);
-           
-           // Filter
            final selectedVerses = allChapterVerses.where((v) => targetVerses.contains(v.verse)).toList();
            
            if (selectedVerses.isNotEmpty) {
-              final textBlock = selectedVerses.map((v) => v.verse > 0 ? "<b>${v.verse}</b> ${v.text}" : v.text).join(" ");
-              // Strip HTML tags if projector doesn't support them, but here we want simple text. 
-              // Actually, projector supports styles but not inline HTML yet probably?
-              // The user just wants the text. Let's just join with spaces.
-              // Maybe superscript numbers? For now, plain text join.
               final plainText = selectedVerses.map((v) => v.text).join(" ");
-              
-              final header = "$bookName $chapter:$versesRaw (${version.abbreviation})";
-              final content = "$header\n$plainText";
-              
-              ref.read(liveSlideContentProvider.notifier).state = LiveSlideData(
-                 content: content,
-                 alignment: 1, // Center
-                 isBold: true,
-              );
-              
-              setState(() {
-                 _projectedVerseRef = refString;
-              });
-              return;
+              final header = "$fullBookName $chapter:$versesRaw (${version.abbreviation})";
+              return "$header\n$plainText";
            }
         }
      }
+     return null;
+  }
 
-     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Verse not found in ${targetVersionId ?? 'database'}')));
+  Future<void> _projectVerse(String refString) async {
+     final content = await _resolveVerseContent(refString);
+     if (content != null) {
+        ref.read(liveSlideContentProvider.notifier).state = LiveSlideData(
+           content: content,
+           alignment: 1, // Center
+           isBold: true,
+        );
+        
+        setState(() {
+           _projectedVerseRef = refString;
+        });
+     } else {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Verse not found in database')));
+     }
   }
 
   Future<void> _toggleProjectVerse(String refString) async {
@@ -343,27 +512,476 @@ class _PresentationEditorControlsState extends ConsumerState<PresentationEditorC
      final slides = List<PresentationSlide>.from(_activeItem!.slides);
      final current = slides[widget.selectedSlideIndex];
      
-     slides[widget.selectedSlideIndex] = PresentationSlide(
-        id: current.id,
-        content: current.content,
-        label: current.label,
-        color: current.color,
-        isBold: isBold ?? current.isBold,
-        isItalic: isItalic ?? current.isItalic,
-        isUnderlined: isUnderlined ?? current.isUnderlined,
-        alignment: alignment ?? current.alignment,
-     );
+     // If alignment is being set, apply to entire slide (not per-range)
+     if (alignment != null) {
+        slides[widget.selectedSlideIndex] = current.copyWith(alignment: alignment);
+        final updatedItem = _activeItem!.copyWith(slides: slides);
+        _syncToProject(updatedItem);
+        return;
+     }
+     
+     // Check if text is selected
+     final selection = _textController.selection;
+     
+     if (selection.isCollapsed || selection.start == selection.end) {
+        // No selection - apply style to entire slide (fallback behavior)
+        slides[widget.selectedSlideIndex] = current.copyWith(
+           isBold: isBold ?? current.isBold,
+           isItalic: isItalic ?? current.isItalic,
+           isUnderlined: isUnderlined ?? current.isUnderlined,
+        );
+     } else {
+        // Text is selected - toggle style on the TextStyleRange
+        final start = selection.start;
+        final end = selection.end;
+        
+        // Check if there's an existing range that exactly matches this selection
+        final existingIdx = current.styledRanges.indexWhere((r) => r.start == start && r.end == end);
+        
+        List<TextStyleRange> updatedRanges;
+        
+        if (existingIdx >= 0) {
+           // Range exists - toggle the specific style
+           final existing = current.styledRanges[existingIdx];
+           final toggledRange = TextStyleRange(
+              start: start,
+              end: end,
+              isBold: isBold != null ? !existing.isBold : existing.isBold,
+              isItalic: isItalic != null ? !existing.isItalic : existing.isItalic,
+              isUnderlined: isUnderlined != null ? !existing.isUnderlined : existing.isUnderlined,
+           );
+           
+           // If all styles are now false, remove the range entirely
+           if (!toggledRange.isBold && !toggledRange.isItalic && !toggledRange.isUnderlined) {
+              updatedRanges = List<TextStyleRange>.from(current.styledRanges)..removeAt(existingIdx);
+           } else {
+              updatedRanges = List<TextStyleRange>.from(current.styledRanges);
+              updatedRanges[existingIdx] = toggledRange;
+           }
+        } else {
+           // No exact match - create new range with the requested style
+           final newRange = TextStyleRange(
+              start: start,
+              end: end,
+              isBold: isBold ?? false,
+              isItalic: isItalic ?? false,
+              isUnderlined: isUnderlined ?? false,
+           );
+           updatedRanges = List<TextStyleRange>.from(current.styledRanges)..add(newRange);
+        }
+        
+        slides[widget.selectedSlideIndex] = current.copyWith(styledRanges: updatedRanges);
+        
+        // Update controller's styledRanges immediately for visual feedback
+        _textController.styledRanges = updatedRanges;
+     }
 
      final updatedItem = _activeItem!.copyWith(slides: slides);
      _syncToProject(updatedItem);
      
-     // Also update live provider to reflect style changes immediately
-     ref.read(liveSlideContentProvider.notifier).state = LiveSlideData(
-        content: _textController.text,
-        isBold: isBold ?? current.isBold,
-        isItalic: isItalic ?? current.isItalic,
-        isUnderlined: isUnderlined ?? current.isUnderlined,
-        alignment: alignment ?? current.alignment,
+     // Force rebuild to show styled text
+     setState(() {});
+  }
+
+  void _applyHighlight(int colorValue) {
+     if (_activeItem == null) return;
+     if (widget.selectedSlideIndex < 0 || widget.selectedSlideIndex >= _activeItem!.slides.length) return;
+     
+     final selection = _textController.selection;
+     if (selection.isCollapsed || selection.start == selection.end) return;
+     
+     final slides = List<PresentationSlide>.from(_activeItem!.slides);
+     final current = slides[widget.selectedSlideIndex];
+     final start = selection.start;
+     final end = selection.end;
+     
+     // Check for existing range at this position
+     final existingIdx = current.styledRanges.indexWhere((r) => r.start == start && r.end == end);
+     
+     List<TextStyleRange> updatedRanges;
+     
+     if (existingIdx >= 0) {
+        // Range exists - update or toggle highlight
+        final existing = current.styledRanges[existingIdx];
+        if (colorValue == 0) {
+           // Remove highlight but keep other styles
+           final updatedRange = TextStyleRange(
+              start: existing.start,
+              end: existing.end,
+              isBold: existing.isBold,
+              isItalic: existing.isItalic,
+              isUnderlined: existing.isUnderlined,
+              highlightColor: null,
+           );
+           // If no styles left, remove range
+           if (!updatedRange.isBold && !updatedRange.isItalic && !updatedRange.isUnderlined) {
+              updatedRanges = List<TextStyleRange>.from(current.styledRanges)..removeAt(existingIdx);
+           } else {
+              updatedRanges = List<TextStyleRange>.from(current.styledRanges);
+              updatedRanges[existingIdx] = updatedRange;
+           }
+        } else {
+           updatedRanges = List<TextStyleRange>.from(current.styledRanges);
+           updatedRanges[existingIdx] = existing.copyWith(highlightColor: colorValue);
+        }
+     } else {
+        // No exact match - create new range with highlight
+        if (colorValue == 0) return; // Nothing to do
+        updatedRanges = List<TextStyleRange>.from(current.styledRanges)
+           ..add(TextStyleRange(start: start, end: end, highlightColor: colorValue));
+     }
+     
+     slides[widget.selectedSlideIndex] = current.copyWith(styledRanges: updatedRanges);
+     _textController.styledRanges = updatedRanges;
+     
+     final updatedItem = _activeItem!.copyWith(slides: slides);
+     _syncToProject(updatedItem);
+     setState(() {});
+  }
+
+  void _applyBulletStyle(String bulletType) {
+     if (_activeItem == null) return;
+     if (widget.selectedSlideIndex < 0 || widget.selectedSlideIndex >= _activeItem!.slides.length) return;
+     
+     final slides = List<PresentationSlide>.from(_activeItem!.slides);
+     final current = slides[widget.selectedSlideIndex];
+     final text = _textController.text;
+     
+     // Get selection - if collapsed, use entire text
+     final selection = _textController.selection;
+     int selStart = selection.isCollapsed ? 0 : selection.start;
+     int selEnd = selection.isCollapsed ? text.length : selection.end;
+     
+     // Find all lines in selection
+     final lines = text.split('\n');
+     final newLines = <String>[];
+     
+     int charIdx = 0;
+     int bulletNum = 1;
+     
+     for (final line in lines) {
+        final lineEnd = charIdx + line.length;
+        
+        // Check if line overlaps with selection
+        final lineInSelection = (charIdx < selEnd && lineEnd > selStart);
+        
+        if (lineInSelection) {
+           // Remove any existing bullet prefix first
+           String cleanLine = line;
+           final bulletPatterns = [
+              RegExp(r'^• '),
+              RegExp(r'^\d+\. '),
+              RegExp(r'^[IVXLCDM]+\. ', caseSensitive: false),
+              RegExp(r'^[A-Z]\. '),
+              RegExp(r'^[a-z]\. '),
+           ];
+           for (final pattern in bulletPatterns) {
+              cleanLine = cleanLine.replaceFirst(pattern, '');
+           }
+           
+           // Apply new bullet
+           String prefix = '';
+           switch (bulletType) {
+              case 'bullet':
+                 prefix = '• ';
+                 break;
+              case 'number':
+                 prefix = '$bulletNum. ';
+                 bulletNum++;
+                 break;
+              case 'roman':
+                 prefix = '${_toRoman(bulletNum)}. ';
+                 bulletNum++;
+                 break;
+              case 'ABC':
+                 prefix = '${String.fromCharCode(64 + bulletNum)}. ';
+                 bulletNum++;
+                 break;
+              case 'abc':
+                 prefix = '${String.fromCharCode(96 + bulletNum)}. ';
+                 bulletNum++;
+                 break;
+              case 'remove':
+                 prefix = '';
+                 break;
+           }
+           newLines.add(prefix + cleanLine);
+        } else {
+           newLines.add(line);
+        }
+        
+        charIdx = lineEnd + 1; // +1 for newline
+     }
+     
+     final newText = newLines.join('\n');
+     _textController.text = newText;
+     slides[widget.selectedSlideIndex] = current.copyWith(content: newText);
+     
+     final updatedItem = _activeItem!.copyWith(slides: slides);
+     _syncToProject(updatedItem);
+     setState(() {});
+  }
+
+  String _toRoman(int num) {
+     const romanNumerals = [
+        (1000, 'M'), (900, 'CM'), (500, 'D'), (400, 'CD'),
+        (100, 'C'), (90, 'XC'), (50, 'L'), (40, 'XL'),
+        (10, 'X'), (9, 'IX'), (5, 'V'), (4, 'IV'), (1, 'I')
+     ];
+     var result = '';
+     var remaining = num;
+     for (final entry in romanNumerals) {
+        while (remaining >= entry.$1) {
+           result += entry.$2;
+           remaining -= entry.$1;
+        }
+     }
+     return result;
+  }
+
+  void _applyTextColor(int colorValue) {
+     if (_activeItem == null) return;
+     if (widget.selectedSlideIndex < 0 || widget.selectedSlideIndex >= _activeItem!.slides.length) return;
+     
+     final selection = _textController.selection;
+     if (selection.isCollapsed || selection.start == selection.end) return;
+     
+     final slides = List<PresentationSlide>.from(_activeItem!.slides);
+     final current = slides[widget.selectedSlideIndex];
+     final start = selection.start;
+     final end = selection.end;
+     
+     final existingIdx = current.styledRanges.indexWhere((r) => r.start == start && r.end == end);
+     
+     List<TextStyleRange> updatedRanges;
+     
+     if (existingIdx >= 0) {
+        final existing = current.styledRanges[existingIdx];
+        if (colorValue == 0) {
+           final updatedRange = TextStyleRange(
+              start: existing.start,
+              end: existing.end,
+              isBold: existing.isBold,
+              isItalic: existing.isItalic,
+              isUnderlined: existing.isUnderlined,
+              highlightColor: existing.highlightColor,
+              textColor: null,
+              fontFamily: existing.fontFamily,
+           );
+           updatedRanges = List<TextStyleRange>.from(current.styledRanges);
+           updatedRanges[existingIdx] = updatedRange;
+        } else {
+           updatedRanges = List<TextStyleRange>.from(current.styledRanges);
+           updatedRanges[existingIdx] = existing.copyWith(textColor: colorValue);
+        }
+     } else {
+        if (colorValue == 0) return;
+        updatedRanges = List<TextStyleRange>.from(current.styledRanges)
+           ..add(TextStyleRange(start: start, end: end, textColor: colorValue));
+     }
+     
+     slides[widget.selectedSlideIndex] = current.copyWith(styledRanges: updatedRanges);
+     _textController.styledRanges = updatedRanges;
+     
+     final updatedItem = _activeItem!.copyWith(slides: slides);
+     _syncToProject(updatedItem);
+     setState(() {});
+  }
+
+  void _applyFont(String fontName) {
+     if (_activeItem == null) return;
+     if (widget.selectedSlideIndex < 0 || widget.selectedSlideIndex >= _activeItem!.slides.length) return;
+     
+     final selection = _textController.selection;
+     if (selection.isCollapsed || selection.start == selection.end) return;
+     
+     final slides = List<PresentationSlide>.from(_activeItem!.slides);
+     final current = slides[widget.selectedSlideIndex];
+     final start = selection.start;
+     final end = selection.end;
+     
+     final existingIdx = current.styledRanges.indexWhere((r) => r.start == start && r.end == end);
+     
+     List<TextStyleRange> updatedRanges;
+     
+     if (existingIdx >= 0) {
+        final existing = current.styledRanges[existingIdx];
+        if (fontName == 'reset') {
+           final updatedRange = TextStyleRange(
+              start: existing.start,
+              end: existing.end,
+              isBold: existing.isBold,
+              isItalic: existing.isItalic,
+              isUnderlined: existing.isUnderlined,
+              highlightColor: existing.highlightColor,
+              textColor: existing.textColor,
+              fontFamily: null,
+           );
+           updatedRanges = List<TextStyleRange>.from(current.styledRanges);
+           updatedRanges[existingIdx] = updatedRange;
+        } else {
+           updatedRanges = List<TextStyleRange>.from(current.styledRanges);
+           updatedRanges[existingIdx] = existing.copyWith(fontFamily: fontName);
+        }
+     } else {
+        if (fontName == 'reset') return;
+        updatedRanges = List<TextStyleRange>.from(current.styledRanges)
+           ..add(TextStyleRange(start: start, end: end, fontFamily: fontName));
+     }
+     
+     slides[widget.selectedSlideIndex] = current.copyWith(styledRanges: updatedRanges);
+     _textController.styledRanges = updatedRanges;
+     
+     final updatedItem = _activeItem!.copyWith(slides: slides);
+     _syncToProject(updatedItem);
+     setState(() {});
+  }
+
+  void _applyFontSize(double size) {
+     if (_activeItem == null) return;
+     if (widget.selectedSlideIndex < 0 || widget.selectedSlideIndex >= _activeItem!.slides.length) return;
+     
+     final selection = _textController.selection;
+     if (selection.isCollapsed || selection.start == selection.end) return;
+     
+     final slides = List<PresentationSlide>.from(_activeItem!.slides);
+     final current = slides[widget.selectedSlideIndex];
+     final start = selection.start;
+     final end = selection.end;
+     
+     final existingIdx = current.styledRanges.indexWhere((r) => r.start == start && r.end == end);
+     
+     List<TextStyleRange> updatedRanges;
+     
+     if (existingIdx >= 0) {
+        final existing = current.styledRanges[existingIdx];
+        if (size == 0.0) {
+           final updatedRange = TextStyleRange(
+              start: existing.start,
+              end: existing.end,
+              isBold: existing.isBold,
+              isItalic: existing.isItalic,
+              isUnderlined: existing.isUnderlined,
+              highlightColor: existing.highlightColor,
+              textColor: existing.textColor,
+              fontFamily: existing.fontFamily,
+              fontSize: null,
+           );
+           updatedRanges = List<TextStyleRange>.from(current.styledRanges);
+           updatedRanges[existingIdx] = updatedRange;
+        } else {
+           updatedRanges = List<TextStyleRange>.from(current.styledRanges);
+           updatedRanges[existingIdx] = existing.copyWith(fontSize: size);
+        }
+     } else {
+        if (size == 0.0) return;
+        updatedRanges = List<TextStyleRange>.from(current.styledRanges)
+           ..add(TextStyleRange(start: start, end: end, fontSize: size));
+     }
+     
+     slides[widget.selectedSlideIndex] = current.copyWith(styledRanges: updatedRanges);
+     _textController.styledRanges = updatedRanges;
+     
+     final updatedItem = _activeItem!.copyWith(slides: slides);
+     _syncToProject(updatedItem);
+     setState(() {});
+  }
+
+  void _increaseIndent() {
+     if (_activeItem == null) return;
+     if (widget.selectedSlideIndex < 0 || widget.selectedSlideIndex >= _activeItem!.slides.length) return;
+     
+     final slides = List<PresentationSlide>.from(_activeItem!.slides);
+     final current = slides[widget.selectedSlideIndex];
+     final text = _textController.text;
+     
+     final selection = _textController.selection;
+     int selStart = selection.isCollapsed ? 0 : selection.start;
+     int selEnd = selection.isCollapsed ? text.length : selection.end;
+     
+     final lines = text.split('\n');
+     final newLines = <String>[];
+     
+     int charIdx = 0;
+     for (final line in lines) {
+        final lineEnd = charIdx + line.length;
+        final lineInSelection = (charIdx < selEnd && lineEnd > selStart);
+        
+        if (lineInSelection) {
+           newLines.add('    $line'); // Add 4 spaces
+        } else {
+           newLines.add(line);
+        }
+        charIdx = lineEnd + 1;
+     }
+     
+     final newText = newLines.join('\n');
+     _textController.text = newText;
+     slides[widget.selectedSlideIndex] = current.copyWith(content: newText);
+     
+     final updatedItem = _activeItem!.copyWith(slides: slides);
+     _syncToProject(updatedItem);
+     setState(() {});
+  }
+
+  void _decreaseIndent() {
+     if (_activeItem == null) return;
+     if (widget.selectedSlideIndex < 0 || widget.selectedSlideIndex >= _activeItem!.slides.length) return;
+     
+     final slides = List<PresentationSlide>.from(_activeItem!.slides);
+     final current = slides[widget.selectedSlideIndex];
+     final text = _textController.text;
+     
+     final selection = _textController.selection;
+     int selStart = selection.isCollapsed ? 0 : selection.start;
+     int selEnd = selection.isCollapsed ? text.length : selection.end;
+     
+     final lines = text.split('\n');
+     final newLines = <String>[];
+     
+     int charIdx = 0;
+     for (final line in lines) {
+        final lineEnd = charIdx + line.length;
+        final lineInSelection = (charIdx < selEnd && lineEnd > selStart);
+        
+        if (lineInSelection) {
+           // Remove up to 4 leading spaces or 1 tab
+           if (line.startsWith('    ')) {
+              newLines.add(line.substring(4));
+           } else if (line.startsWith('\t')) {
+              newLines.add(line.substring(1));
+           } else if (line.startsWith('  ')) {
+              newLines.add(line.substring(2));
+           } else if (line.startsWith(' ')) {
+              newLines.add(line.substring(1));
+           } else {
+              newLines.add(line);
+           }
+        } else {
+           newLines.add(line);
+        }
+        charIdx = lineEnd + 1;
+     }
+     
+     final newText = newLines.join('\n');
+     _textController.text = newText;
+     slides[widget.selectedSlideIndex] = current.copyWith(content: newText);
+     
+     final updatedItem = _activeItem!.copyWith(slides: slides);
+     _syncToProject(updatedItem);
+     setState(() {});
+  }
+
+  PopupMenuItem<int> _buildColorMenuItem(int color, String label) {
+     return PopupMenuItem(
+        value: color,
+        child: Row(
+           children: [
+              Container(width: 16, height: 16, color: Color(color)),
+              const SizedBox(width: 8),
+              Text(label, style: const TextStyle(color: Colors.white70)),
+           ],
+        ),
      );
   }
 
@@ -382,6 +1000,16 @@ class _PresentationEditorControlsState extends ConsumerState<PresentationEditorC
         
         if (_textController.text != newText) {
              _textController.text = newText;
+             // Sync styled ranges from loaded slide
+             if (activeItem != null && widget.selectedSlideIndex >= 0 && widget.selectedSlideIndex < activeItem.slides.length) {
+                _textController.styledRanges = activeItem.slides[widget.selectedSlideIndex].styledRanges;
+             } else {
+                _textController.styledRanges = const [];
+             }
+             // Trigger detect when navigating/loading
+             WidgetsBinding.instance.addPostFrameCallback((_) {
+                 if (mounted && _activeItem != null) _parseBibleReferences(_activeItem);
+             });
         }
     }
 
@@ -411,13 +1039,19 @@ class _PresentationEditorControlsState extends ConsumerState<PresentationEditorC
     
     final filteredVersions = versions.where((v) => v.language == _selectedLanguage).toList();
     if (_selectedVersionId == null && filteredVersions.isNotEmpty) {
-       _selectedVersionId = filteredVersions.first.id;
+       // Default to NLT if available
+       final nlt = filteredVersions.where((v) => v.abbreviation == 'NLT').firstOrNull;
+       _selectedVersionId = nlt?.id ?? filteredVersions.first.id;
     } else if (_selectedVersionId != null && !filteredVersions.any((v) => v.id == _selectedVersionId)) {
        // Reset if language filtered it out
-       _selectedVersionId = filteredVersions.isNotEmpty ? filteredVersions.first.id : null;
+       final nlt = filteredVersions.where((v) => v.abbreviation == 'NLT').firstOrNull;
+       _selectedVersionId = filteredVersions.isNotEmpty ? (nlt?.id ?? filteredVersions.first.id) : null;
     }
 
-    return Container(
+    return Focus(
+      focusNode: _editorFocusNode,
+      onKeyEvent: _handleKeyEvent,
+      child: Container(
       padding: const EdgeInsets.all(16),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -428,16 +1062,20 @@ class _PresentationEditorControlsState extends ConsumerState<PresentationEditorC
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Editing Slide ${widget.selectedSlideIndex + 1}',
-                  style: const TextStyle(color: Colors.white54, fontSize: 14),
-                ),
-                const SizedBox(height: 16),
-                // Mock Toolbar -> Real Toolbar
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
+
+                // Real Toolbar
+                Row(
+                  children: [
+                    Expanded(
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                      // Undo/Redo
+                      _buildToolbarButton(Icons.undo, _undo, isActive: _undoStack.isNotEmpty),
+                      const SizedBox(width: 4),
+                      _buildToolbarButton(Icons.redo, _redo, isActive: _redoStack.isNotEmpty),
+                      const SizedBox(width: 16),
                       _buildToolbarButton(Icons.format_bold, () => _updateSlideStyle(isBold: !isBold), isActive: isBold),
                       const SizedBox(width: 8),
                       _buildToolbarButton(Icons.format_italic, () => _updateSlideStyle(isItalic: !isItalic), isActive: isItalic),
@@ -452,7 +1090,113 @@ class _PresentationEditorControlsState extends ConsumerState<PresentationEditorC
                       _buildToolbarButton(Icons.format_align_right, () => _updateSlideStyle(alignment: 2), isActive: alignment == 2),
                       const SizedBox(width: 16),
                       
-                      // Bible Selectors (Moved to Toolbar)
+                      // Highlight Color Picker
+                      PopupMenuButton<int>(
+                        icon: const Icon(Icons.highlight, color: Colors.white70, size: 20),
+                        tooltip: 'Highlight Color',
+                        color: const Color(0xFF333333),
+                        onSelected: (color) => _applyHighlight(color),
+                        itemBuilder: (context) => [
+                          _buildColorMenuItem(0xFFFFFF00, 'Yellow'),
+                          _buildColorMenuItem(0xFF00FF00, 'Green'),
+                          _buildColorMenuItem(0xFF00FFFF, 'Cyan'),
+                          _buildColorMenuItem(0xFFFF69B4, 'Pink'),
+                          _buildColorMenuItem(0xFFFFB347, 'Orange'),
+                          const PopupMenuItem(value: 0, child: Text('Remove Highlight', style: TextStyle(color: Colors.white70))),
+                        ],
+                      ),
+                      const SizedBox(width: 8),
+                      
+                      // Text Color Picker
+                      PopupMenuButton<int>(
+                        icon: const Icon(Icons.format_color_text, color: Colors.white70, size: 20),
+                        tooltip: 'Text Color',
+                        color: const Color(0xFF333333),
+                        onSelected: (color) => _applyTextColor(color),
+                        itemBuilder: (context) => [
+                          _buildColorMenuItem(0xFFFFFFFF, 'White'),
+                          _buildColorMenuItem(0xFF000000, 'Black'),
+                          _buildColorMenuItem(0xFFFF0000, 'Red'),
+                          _buildColorMenuItem(0xFF00FF00, 'Green'),
+                          _buildColorMenuItem(0xFF0000FF, 'Blue'),
+                          _buildColorMenuItem(0xFFFFFF00, 'Yellow'),
+                          _buildColorMenuItem(0xFFFF69B4, 'Pink'),
+                          _buildColorMenuItem(0xFFFFA500, 'Orange'),
+                          const PopupMenuItem(value: 0, child: Text('Reset Color', style: TextStyle(color: Colors.white70))),
+                        ],
+                      ),
+                      const SizedBox(width: 8),
+                      
+                      // Font Selector
+                      PopupMenuButton<String>(
+                        icon: const Icon(Icons.font_download, color: Colors.white70, size: 20),
+                        tooltip: 'Font',
+                        color: const Color(0xFF333333),
+                        onSelected: (font) => _applyFont(font),
+                        itemBuilder: (context) => [
+                          const PopupMenuItem(value: 'Roboto', child: Text('Roboto', style: TextStyle(color: Colors.white70, fontFamily: 'Roboto'))),
+                          const PopupMenuItem(value: 'Arial', child: Text('Arial', style: TextStyle(color: Colors.white70, fontFamily: 'Arial'))),
+                          const PopupMenuItem(value: 'Times New Roman', child: Text('Times New Roman', style: TextStyle(color: Colors.white70, fontFamily: 'Times New Roman'))),
+                          const PopupMenuItem(value: 'Georgia', child: Text('Georgia', style: TextStyle(color: Colors.white70, fontFamily: 'Georgia'))),
+                          const PopupMenuItem(value: 'Courier New', child: Text('Courier New', style: TextStyle(color: Colors.white70, fontFamily: 'Courier New'))),
+                          const PopupMenuItem(value: 'reset', child: Text('Reset Font', style: TextStyle(color: Colors.white70))),
+                        ],
+                      ),
+                      const SizedBox(width: 8),
+                      
+                      // Bullet Style Menu
+                      PopupMenuButton<String>(
+                        icon: const Icon(Icons.format_list_bulleted, color: Colors.white70, size: 20),
+                        tooltip: 'Bullet Style',
+                        color: const Color(0xFF333333),
+                        onSelected: (style) => _applyBulletStyle(style),
+                        itemBuilder: (context) => [
+                          const PopupMenuItem(value: 'bullet', child: Text('• Bullet', style: TextStyle(color: Colors.white70))),
+                          const PopupMenuItem(value: 'number', child: Text('1. Numbered', style: TextStyle(color: Colors.white70))),
+                          const PopupMenuItem(value: 'roman', child: Text('I. Roman', style: TextStyle(color: Colors.white70))),
+                          const PopupMenuItem(value: 'ABC', child: Text('A. Uppercase', style: TextStyle(color: Colors.white70))),
+                          const PopupMenuItem(value: 'abc', child: Text('a. Lowercase', style: TextStyle(color: Colors.white70))),
+                          const PopupMenuItem(value: 'remove', child: Text('Remove Bullets', style: TextStyle(color: Colors.white70))),
+                        ],
+                      ),
+                      const SizedBox(width: 8),
+                      
+                      // Font Size Menu (8-72 limited)
+                      PopupMenuButton<double>(
+                        icon: const Icon(Icons.format_size, color: Colors.white70, size: 20),
+                        tooltip: 'Font Size',
+                        color: const Color(0xFF333333),
+                        onSelected: (size) => _applyFontSize(size),
+                        itemBuilder: (context) => [
+                          const PopupMenuItem(value: 12.0, child: Text('12', style: TextStyle(color: Colors.white70))),
+                          const PopupMenuItem(value: 14.0, child: Text('14', style: TextStyle(color: Colors.white70))),
+                          const PopupMenuItem(value: 16.0, child: Text('16', style: TextStyle(color: Colors.white70))),
+                          const PopupMenuItem(value: 18.0, child: Text('18', style: TextStyle(color: Colors.white70))),
+                          const PopupMenuItem(value: 20.0, child: Text('20', style: TextStyle(color: Colors.white70))),
+                          const PopupMenuItem(value: 24.0, child: Text('24', style: TextStyle(color: Colors.white70))),
+                          const PopupMenuItem(value: 28.0, child: Text('28', style: TextStyle(color: Colors.white70))),
+                          const PopupMenuItem(value: 32.0, child: Text('32', style: TextStyle(color: Colors.white70))),
+                          const PopupMenuItem(value: 40.0, child: Text('40', style: TextStyle(color: Colors.white70))),
+                          const PopupMenuItem(value: 48.0, child: Text('48', style: TextStyle(color: Colors.white70))),
+                          const PopupMenuItem(value: 56.0, child: Text('56', style: TextStyle(color: Colors.white70))),
+                          const PopupMenuItem(value: 64.0, child: Text('64', style: TextStyle(color: Colors.white70))),
+                          const PopupMenuItem(value: 72.0, child: Text('72', style: TextStyle(color: Colors.white70))),
+                          const PopupMenuItem(value: 0.0, child: Text('Reset Size', style: TextStyle(color: Colors.white70))),
+                        ],
+                      ),
+                      const SizedBox(width: 8),
+                      
+                      // Indent Buttons
+                      _buildToolbarButton(Icons.format_indent_increase, _increaseIndent),
+                      const SizedBox(width: 4),
+                      _buildToolbarButton(Icons.format_indent_decrease, _decreaseIndent),
+                      const SizedBox(width: 16),
+                          ],
+                        ),
+                      ),
+                    ),
+                      
+                      // Bible Selectors (Fixed Right)
                       if (languages.isNotEmpty) ...[
                           Container(width: 1, height: 24, color: Colors.white24),
                           const SizedBox(width: 16),
@@ -490,13 +1234,40 @@ class _PresentationEditorControlsState extends ConsumerState<PresentationEditorC
                       ),
                     ],
                   ),
-                ),
+
                 const SizedBox(height: 16),
                 
-                // Detected Verses UI
+                 // Detected Verses UI MOVED DOWN
+
+
+                // Text Field
+                 Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF2D2D2D),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.white10),
+                    ),
+                    child: TextField(
+                      controller: _textController,
+                      onChanged: _onTextChanged,
+                      maxLines: null,
+                      expands: true,
+                      style: const TextStyle(color: Colors.white, fontSize: 16),
+                     decoration: const InputDecoration(
+                        border: InputBorder.none,
+                        hintText: 'Type your content here...',
+                        hintStyle: TextStyle(color: Colors.white24),
+                      ),
+                    ),
+                  ),
+                ),
+                
+                // Detected Verses UI (Bottom)
                 if (_detectedVerses.isNotEmpty)
                 Padding(
-                   padding: const EdgeInsets.only(bottom: 16),
+                   padding: const EdgeInsets.only(top: 16),
                    child: Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
@@ -521,14 +1292,17 @@ class _PresentationEditorControlsState extends ConsumerState<PresentationEditorC
                                            final isActive = _projectedVerseRef == refString;
                                            return Padding(
                                               padding: const EdgeInsets.only(right: 8.0),
-                                              child: ActionChip(
-                                                 label: Text(refString),
-                                                 avatar: Icon(isActive ? Icons.visibility_off : Icons.visibility, size: 14, color: isActive ? Colors.white : Colors.blueAccent),
-                                                 backgroundColor: isActive ? Colors.blueAccent : const Color(0xFF3D3D3D),
-                                                 labelStyle: TextStyle(color: isActive ? Colors.white : Colors.white70),
-                                                 onPressed: () => _toggleProjectVerse(refString),
-                                                 side: BorderSide.none,
-                                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                              child: GestureDetector(
+                                                onSecondaryTapUp: (details) => _showVerseContextMenu(context, details.globalPosition, refString),
+                                                child: ActionChip(
+                                                   label: Text(refString),
+                                                   avatar: Icon(isActive ? Icons.visibility_off : Icons.visibility, size: 14, color: isActive ? Colors.white : Colors.blueAccent),
+                                                   backgroundColor: isActive ? Colors.blueAccent : const Color(0xFF3D3D3D),
+                                                   labelStyle: TextStyle(color: isActive ? Colors.white : Colors.white70),
+                                                   onPressed: () => _toggleProjectVerse(refString),
+                                                   side: BorderSide.none,
+                                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                                ),
                                               ),
                                            );
                                         }).toList(),
@@ -540,30 +1314,6 @@ class _PresentationEditorControlsState extends ConsumerState<PresentationEditorC
                       ),
                    ),
                 ),
-
-                // Text Field
-                 Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF2D2D2D),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.white10),
-                    ),
-                    child: TextField(
-                      controller: _textController,
-                      onChanged: _onTextChanged,
-                      maxLines: null,
-                      expands: true,
-                      style: const TextStyle(color: Colors.white, fontSize: 16),
-                      decoration: const InputDecoration(
-                        border: InputBorder.none,
-                        hintText: 'Type your content here...',
-                        hintStyle: TextStyle(color: Colors.white24),
-                      ),
-                    ),
-                  ),
-                ),
               ],
             ),
           ),
@@ -571,85 +1321,56 @@ class _PresentationEditorControlsState extends ConsumerState<PresentationEditorC
           const SizedBox(width: 16),
 
             // Right: Live Preview
-          Expanded(
-            flex: 1,
-            child: Column(
-              children: [
-                // Audience Preview
-                Expanded(
-                  child: Center(
-                    child: AspectRatio(
-                      aspectRatio: 16 / 9,
-                      child: Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.black,
-                          border: Border.all(color: Colors.white24),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        // Using current editor state for preview, NOT just live content string
-                        // This allows 'Design Mode' feel
-                        child: FittedBox(
-                          fit: BoxFit.contain,
-                          child: SizedBox(
-                            width: 1920, 
-                            height: 1080,
-                            child: Padding(
-                              padding: const EdgeInsets.all(48.0),
-                              child: Center(
-                                child: Text(
-                                  // Use controller text for immediate feedback or active item text
-                                  _textController.text.isNotEmpty ? _textController.text : (liveContent.content.isNotEmpty ? liveContent.content : 'Audience Screen 1'),
-                                  textAlign: alignment == 0 ? TextAlign.left : (alignment == 2 ? TextAlign.right : TextAlign.center),
-                                  style: TextStyle(
-                                     color: Colors.white, 
-                                     fontSize: 80,
-                                     fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
-                                     fontStyle: isItalic ? FontStyle.italic : FontStyle.normal,
-                                     decoration: isUnderlined ? TextDecoration.underline : TextDecoration.none,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: 16),
-
-                // Stage Preview
-                Expanded(
-                   child: Center(
-                     child: AspectRatio(
-                      aspectRatio: 16 / 9,
-                      child: Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.black,
-                          border: Border.all(color: Colors.white24),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: const FittedBox(
-                          fit: BoxFit.contain,
-                          child: Text(
-                            'Stage View',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.white54, fontSize: 24),
-                          ),
-                        ),
-                      ),
-                    ),
-                   ),
-                ),
-              ],
-            ),
-          ),
         ],
       ),
+    ),
     );
+  }
+
+  Future<void> _addVerseAsSlide(String refString) async {
+    final content = await _resolveVerseContent(refString);
+    if (content == null || _activeItem == null) return;
+
+    final slides = List<PresentationSlide>.from(_activeItem!.slides);
+    final newSlide = PresentationSlide(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      content: content,
+      label: 'Scripture',
+      color: 0xFF2D2D2D, 
+    );
+
+    slides.add(newSlide);
+
+    final updatedItem = _activeItem!.copyWith(slides: slides);
+    _syncToProject(updatedItem);
+    
+    if (mounted) {
+       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Added slide: $refString')));
+    }
+  }
+
+  void _showVerseContextMenu(BuildContext context, Offset position, String refString) {
+    showMenu(
+      context: context,
+      position: RelativeRect.fromLTRB(position.dx, position.dy, position.dx, position.dy),
+      items: [
+        const PopupMenuItem(
+          value: 'add_slide',
+          child: Row(
+            children: [
+               Icon(Icons.add_to_photos, size: 18, color: Colors.white70),
+               SizedBox(width: 8),
+               Text('Add to Slide', style: TextStyle(color: Colors.white, fontSize: 14)),
+            ],
+          ),
+        ),
+      ],
+      color: const Color(0xFF333333),
+    ).then((value) {
+      if (value == 'add_slide') {
+        _addVerseAsSlide(refString);
+      }
+    });
   }
 
   Widget _buildToolbarButton(IconData icon, VoidCallback onPressed, {bool isActive = false}) {
@@ -692,4 +1413,12 @@ class _PresentationEditorControlsState extends ConsumerState<PresentationEditorC
         ],
      );
   }
+}
+
+/// Helper class to store editor state for undo/redo
+class _EditorState {
+  final String content;
+  final List<TextStyleRange> styledRanges;
+  
+  _EditorState({required this.content, required this.styledRanges});
 }

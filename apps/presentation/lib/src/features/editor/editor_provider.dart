@@ -5,6 +5,16 @@ import '../service/service_model.dart';
 final activeFileProvider = StateProvider<File?>((ref) => null);
 final activeProjectProvider = StateProvider<ServiceProject?>((ref) => null);
 final activeEditorItemProvider = StateProvider<ServiceItem?>((ref) => null);
+
+/// Display mode for the audience screen: slide content or Bible overlay.
+enum DisplayMode { slideContent, bibleOverlay }
+
+/// Provider for current display mode.
+final displayModeProvider = StateProvider<DisplayMode>((ref) => DisplayMode.slideContent);
+
+/// Provider for currently projected Bible reference (if in bibleOverlay mode).
+final projectedBibleRefProvider = StateProvider<String?>((ref) => null);
+
 class LiveSlideData {
   final String content;
   final bool isBold;

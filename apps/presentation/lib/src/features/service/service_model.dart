@@ -1,5 +1,76 @@
 import 'dart:convert';
 
+/// Represents a styled range of text within a slide.
+class TextStyleRange {
+  final int start;
+  final int end;
+  final bool isBold;
+  final bool isItalic;
+  final bool isUnderlined;
+  final int? highlightColor; // ARGB int, null = no highlight
+  final int? textColor; // ARGB int, null = default color
+  final String? fontFamily; // Font family name, null = default
+  final double? fontSize; // Font size in pixels, null = default (8-72 range)
+
+  const TextStyleRange({
+    required this.start,
+    required this.end,
+    this.isBold = false,
+    this.isItalic = false,
+    this.isUnderlined = false,
+    this.highlightColor,
+    this.textColor,
+    this.fontFamily,
+    this.fontSize,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'start': start,
+    'end': end,
+    'isBold': isBold,
+    'isItalic': isItalic,
+    'isUnderlined': isUnderlined,
+    'highlightColor': highlightColor,
+    'textColor': textColor,
+    'fontFamily': fontFamily,
+    'fontSize': fontSize,
+  };
+
+  factory TextStyleRange.fromJson(Map<String, dynamic> json) => TextStyleRange(
+    start: json['start'] as int,
+    end: json['end'] as int,
+    isBold: json['isBold'] as bool? ?? false,
+    isItalic: json['isItalic'] as bool? ?? false,
+    isUnderlined: json['isUnderlined'] as bool? ?? false,
+    highlightColor: json['highlightColor'] as int?,
+    textColor: json['textColor'] as int?,
+    fontFamily: json['fontFamily'] as String?,
+    fontSize: (json['fontSize'] as num?)?.toDouble(),
+  );
+
+  TextStyleRange copyWith({
+    int? start,
+    int? end,
+    bool? isBold,
+    bool? isItalic,
+    bool? isUnderlined,
+    int? highlightColor,
+    int? textColor,
+    String? fontFamily,
+    double? fontSize,
+  }) => TextStyleRange(
+    start: start ?? this.start,
+    end: end ?? this.end,
+    isBold: isBold ?? this.isBold,
+    isItalic: isItalic ?? this.isItalic,
+    isUnderlined: isUnderlined ?? this.isUnderlined,
+    highlightColor: highlightColor ?? this.highlightColor,
+    textColor: textColor ?? this.textColor,
+    fontFamily: fontFamily ?? this.fontFamily,
+    fontSize: fontSize ?? this.fontSize,
+  );
+}
+
 class PresentationSlide {
   final String id;
   final String content;
@@ -9,6 +80,7 @@ class PresentationSlide {
   final bool isItalic;
   final bool isUnderlined;
   final int alignment; // 0=left, 1=center, 2=right
+  final List<TextStyleRange> styledRanges; // Per-character style ranges
 
   PresentationSlide({
     required this.id,
@@ -19,6 +91,7 @@ class PresentationSlide {
     this.isItalic = false,
     this.isUnderlined = false,
     this.alignment = 1, // Default Center
+    this.styledRanges = const [],
   });
 
   PresentationSlide copyWith({
@@ -30,6 +103,7 @@ class PresentationSlide {
     bool? isItalic,
     bool? isUnderlined,
     int? alignment,
+    List<TextStyleRange>? styledRanges,
   }) {
     return PresentationSlide(
       id: id ?? this.id,
@@ -40,6 +114,7 @@ class PresentationSlide {
       isItalic: isItalic ?? this.isItalic,
       isUnderlined: isUnderlined ?? this.isUnderlined,
       alignment: alignment ?? this.alignment,
+      styledRanges: styledRanges ?? this.styledRanges,
     );
   }
 
@@ -53,6 +128,7 @@ class PresentationSlide {
       'isItalic': isItalic,
       'isUnderlined': isUnderlined,
       'alignment': alignment,
+      'styledRanges': styledRanges.map((r) => r.toJson()).toList(),
     };
   }
 
@@ -66,6 +142,9 @@ class PresentationSlide {
       isItalic: json['isItalic'] as bool? ?? false,
       isUnderlined: json['isUnderlined'] as bool? ?? false,
       alignment: json['alignment'] as int? ?? 1,
+      styledRanges: (json['styledRanges'] as List<dynamic>?)
+          ?.map((r) => TextStyleRange.fromJson(r as Map<String, dynamic>))
+          .toList() ?? const [],
     );
   }
 }

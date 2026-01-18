@@ -1,5 +1,6 @@
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'bible_repository.dart';
 import 'bible_model.dart';
@@ -35,8 +36,10 @@ class _BiblePanelState extends ConsumerState<BiblePanel> {
         // Set defaults if available
         final versions = repo.getVersions();
         if (versions.isNotEmpty) {
-           // Default to English or first
-           _selectedVersion = versions.firstWhere((v) => v.language == 'English', orElse: () => versions.first);
+           // Default to NLT if available, otherwise English or first
+           final nlt = versions.where((v) => v.abbreviation == 'NLT').firstOrNull;
+           final english = versions.where((v) => v.language == 'English').firstOrNull;
+           _selectedVersion = nlt ?? english ?? versions.first;
         }
       });
     }
@@ -45,12 +48,50 @@ class _BiblePanelState extends ConsumerState<BiblePanel> {
   TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
 
-  String? _selectedReference;
+  final Set<String> _selectedReferences = {};
+  String? _lastSelectedReference; // For Shift-click range selection
 
   @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _toggleSelection(String ref, bool isMulti, bool isRange, List<BibleVerse> currentVerses) {
+     setState(() {
+        if (isRange && _lastSelectedReference != null) {
+           // Find indices
+           final startRef = _lastSelectedReference!;
+           final endRef = ref;
+           
+           // We need the list of visible verses to determine range
+           // Fortunately we pass currentVerses
+           int startIndex = currentVerses.indexWhere((v) => "${v.bookName} ${v.chapter}:${v.verse}" == startRef);
+           int endIndex = currentVerses.indexWhere((v) => "${v.bookName} ${v.chapter}:${v.verse}" == endRef);
+           
+           if (startIndex != -1 && endIndex != -1) {
+              final start = startIndex < endIndex ? startIndex : endIndex;
+              final end = startIndex < endIndex ? endIndex : startIndex;
+              
+              _selectedReferences.clear();
+              for (int i = start; i <= end; i++) {
+                 final v = currentVerses[i];
+                 _selectedReferences.add("${v.bookName} ${v.chapter}:${v.verse}");
+              }
+           }
+        } else if (isMulti) {
+           if (_selectedReferences.contains(ref)) {
+              _selectedReferences.remove(ref);
+           } else {
+              _selectedReferences.add(ref);
+           }
+           _lastSelectedReference = ref;
+        } else {
+           _selectedReferences.clear();
+           _selectedReferences.add(ref);
+           _lastSelectedReference = ref;
+        }
+     });
   }
 
   @override
@@ -212,7 +253,7 @@ class _BiblePanelState extends ConsumerState<BiblePanel> {
         children: results.map((verse) {
            return Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),
-              child: _buildVerseItem(verse, showReference: true),
+              child: _buildVerseItem(verse, showReference: true, allVerses: results),
            );
         }).toList(),
      );
@@ -220,12 +261,13 @@ class _BiblePanelState extends ConsumerState<BiblePanel> {
 
   Widget _buildChapterView(BibleRepository repo) {
     if (_selectedVersion != null && _selectedBook != null && _selectedChapter != null) {
+       final chapterVerses = repo.getVerses(_selectedVersion!.abbreviation, _selectedBook!, _selectedChapter!);
        return ListView(
           padding: const EdgeInsets.all(8),
-          children: repo.getVerses(_selectedVersion!.abbreviation, _selectedBook!, _selectedChapter!).map((verse) {
+          children: chapterVerses.map((verse) {
              return Padding(
                padding: const EdgeInsets.symmetric(vertical: 4),
-               child: _buildVerseItem(verse),
+               child: _buildVerseItem(verse, allVerses: chapterVerses),
              );
           }).toList(),
        );
@@ -233,32 +275,82 @@ class _BiblePanelState extends ConsumerState<BiblePanel> {
     return const Center(child: Text("Select a book and chapter", style: TextStyle(color: Colors.white30)));
   }
 
-  Widget _buildVerseItem(BibleVerse verse, {bool showReference = false}) {
+  Widget _buildVerseItem(BibleVerse verse, {bool showReference = false, List<BibleVerse>? allVerses}) {
     final uniqueRef = "${verse.bookName} ${verse.chapter}:${verse.verse}";
-    final isSelected = _selectedReference == uniqueRef;
+    final isSelected = _selectedReferences.contains(uniqueRef);
 
-    return InkWell(
+    // Create a feedback widget for dragging
+    Widget feedbackWidget() {
+       final count = _selectedReferences.length;
+       return Material(
+         color: Colors.transparent,
+         child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+               color: Colors.blueAccent,
+               borderRadius: BorderRadius.circular(8),
+               boxShadow: const [BoxShadow(color: Colors.black45, blurRadius: 8, offset: Offset(0, 4))],
+            ),
+            child: Row(
+               mainAxisSize: MainAxisSize.min,
+               children: [
+                  const Icon(Icons.format_quote, color: Colors.white),
+                  const SizedBox(width: 8),
+                  Text(
+                     count > 1 ? "$count Verses" : uniqueRef,
+                     style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  ),
+               ],
+            ),
+         ),
+       );
+    }
+
+    return Draggable<List<BibleVerse>>(
+      data: _selectedReferences.contains(uniqueRef) 
+          ? (allVerses?.where((v) => _selectedReferences.contains("${v.bookName} ${v.chapter}:${v.verse}")).toList() ?? [verse])
+          : [verse], // If dragging unselected, just drag that one
+      feedback: feedbackWidget(),
+      childWhenDragging: Opacity(opacity: 0.5, child: _verseContent(verse, uniqueRef, isSelected, showReference, allVerses)),
+      child: _verseContent(verse, uniqueRef, isSelected, showReference, allVerses),
+    );
+  }
+
+  Widget _verseContent(BibleVerse verse, String uniqueRef, bool isSelected, bool showReference, List<BibleVerse>? allVerses) {
+      return InkWell(
         onTap: () {
-           // Action when clicking a verse (Project it)
-           debugPrint("Projecting verse: $uniqueRef");
+           final isCtrl = HardwareKeyboard.instance.isControlPressed;
+           final isShift = HardwareKeyboard.instance.isShiftPressed;
            
-           setState(() {
-              _selectedReference = uniqueRef;
-           });
+           if (allVerses != null) {
+              _toggleSelection(uniqueRef, isCtrl, isShift, allVerses);
+           } else {
+              // Fallback if list not provided (e.g. search results logic might need update to pass list)
+              _toggleSelection(uniqueRef, isCtrl, false, []); 
+           }
            
-            // Format content for projection
-            // Use full book name for projection
-            final repo = ref.read(bibleRepositoryProvider);
-            final fullBookName = repo.getBookFullName(verse.bookName);
-            final projectionRef = "$fullBookName ${verse.chapter}:${verse.verse}";
-            
-            final content = "$projectionRef\n${verse.text}";
-            
-            // Update the live slide content provider which triggers the projection window
-            ref.read(liveSlideContentProvider.notifier).state = LiveSlideData(
-               content: content,
-               alignment: 1, // Default center for Bible verses
-            );
+           // Auto-project on single click ONLY if not multi-selecting? 
+           // Request says: "can be draggable... per verse... multi select to drag"
+           // It didn't explicitly say "remove click to project", but usually multi-select UI conflicts with "click to action".
+           // Let's Keep "Click" as "Select". 
+           // We can add a "Double Click" to project immediately? Or just drag to project.
+           // PREVIOUS BEHAVIOR: Click -> Project.
+           // NEW BEHAVIOR: Click -> Select. Double Click -> Project?
+           // Let's implement Double Tap to Project.
+           
+        },
+        onDoubleTap: () {
+            debugPrint("Projecting verse: $uniqueRef");
+            // Project immediately
+             final repo = ref.read(bibleRepositoryProvider);
+             final fullBookName = repo.getBookFullName(verse.bookName);
+             final projectionRef = "$fullBookName ${verse.chapter}:${verse.verse}";
+             final content = "$projectionRef\n${verse.text}";
+             
+             ref.read(liveSlideContentProvider.notifier).state = LiveSlideData(
+                content: content,
+                alignment: 1,
+             );
         },
         child: Container(
            padding: const EdgeInsets.all(8),
